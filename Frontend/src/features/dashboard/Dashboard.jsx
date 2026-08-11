@@ -9,16 +9,17 @@ import useDashboardStore from '../../store/useDashboardStore.js'
 import { useAuthStore } from '../../store/useAuthStore'
 
 const Dashboard = () => {
-  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, clearResults, registrarVenta, registerOfferOutcome } = useDashboardStore()
+  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, clearResults, registerOfferOutcome } = useDashboardStore()
   const { user } = useAuthStore()
   const { salesMetrics, salesByAdvisor } = useDashboardStore()
   const myAdvisorKey = user?.id || `advisor-${(user?.name || '').toLowerCase()}`
   const mySales = (salesByAdvisor && salesByAdvisor[myAdvisorKey] && salesByAdvisor[myAdvisorKey].accepted) || 0
   const handleAccept = (selectedOffer) => {
-    if (user) registrarVenta(user)
+    if (user) registerOfferOutcome('accepted', user)
     clearResults()
   }
   const handleReject = () => {
+    if (user) registerOfferOutcome('rejected', user)
     clearResults()
   }
 
