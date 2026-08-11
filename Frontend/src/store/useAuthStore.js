@@ -1,27 +1,15 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { authenticateUser, User as AuthUser } from '../services/mockAuthService'
+import { authenticateUser } from '../services/mockAuthService.js'
 
-export type User = AuthUser
-
-interface AuthState {
-  user: User | null
-  isAuthenticated: boolean
-  isLoading: boolean
-
-  login: (email: string, password: string) => Promise<void>
-  logout: () => void
-  clearAuth: () => void
-}
-
-export const useAuthStore = create<AuthState>()(
+export const useAuthStore = create()(
   persist(
     (set) => ({
       user: null,
       isAuthenticated: false,
       isLoading: false,
 
-      login: async (email: string, password: string) => {
+      login: async (email, password) => {
         set({ isLoading: true })
 
         try {

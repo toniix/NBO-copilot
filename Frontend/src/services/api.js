@@ -1,8 +1,13 @@
 const BASE_URL = 'http://localhost:8000/api/v1'
 
-const PHONE_TO_DNI_MAP = {
+// Asocia identificadores demo (teléfono o DNI) con su código de cliente.
+// Los códigos CLI (ej. CLI000013) se resuelven directamente contra el backend.
+const IDENTIFIER_TO_CLI = {
   '999999999': 'CLI000001',
+  '12345678': 'CLI000001',
 }
+
+const isClientId = (value) => /^CLI\d{3,}$/i.test(value)
 
 const normalizeMovistarTotal = (value) => String(value).toLowerCase() === 'true'
 
@@ -11,8 +16,9 @@ const normalizeOffer = (offer = {}) => ({
   es_movistar_total: normalizeMovistarTotal(offer.es_movistar_total),
 })
 
-export const getRecommendation = async (phone) => {
-  const dni = PHONE_TO_DNI_MAP[phone]
+export const getRecommendation = async (identifier) => {
+  const normalized = String(identifier || '').trim().toUpperCase()
+  const dni = isClientId(normalized) ? normalized : IDENTIFIER_TO_CLI[normalized]
   if (!dni) {
     return null
   }

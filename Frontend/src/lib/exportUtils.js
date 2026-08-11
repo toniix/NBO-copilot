@@ -96,27 +96,23 @@ export const exportToHTML = (data, filename = 'reporte-visual.html', options = {
 }
 
 export const exportToPDF = async (elementId = 'supervisor-report', filename = 'reporte-supervisor.pdf') => {
-  try {
-    const { default: html2canvas } = await import('html2canvas')
-    const { jsPDF } = await import('jspdf')
+  const { default: html2canvas } = await import('html2canvas')
+  const { jsPDF } = await import('jspdf')
 
-    const el = document.getElementById(elementId)
-    if (!el) throw new Error('Elemento de reporte no encontrado')
+  const el = document.getElementById(elementId)
+  if (!el) throw new Error('Elemento de reporte no encontrado')
 
-    const canvas = await html2canvas(el, { scale: 2 })
-    const imgData = canvas.toDataURL('image/png')
+  const canvas = await html2canvas(el, { scale: 2 })
+  const imgData = canvas.toDataURL('image/png')
 
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const imgProps = { width: canvas.width, height: canvas.height }
-    const ratio = Math.min(pageWidth / imgProps.width, pageHeight / imgProps.height)
-    const imgWidth = imgProps.width * ratio
-    const imgHeight = imgProps.height * ratio
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = pdf.internal.pageSize.getHeight()
+  const imgProps = { width: canvas.width, height: canvas.height }
+  const ratio = Math.min(pageWidth / imgProps.width, pageHeight / imgProps.height)
+  const imgWidth = imgProps.width * ratio
+  const imgHeight = imgProps.height * ratio
 
-    pdf.addImage(imgData, 'PNG', (pageWidth - imgWidth) / 2, 20, imgWidth, imgHeight)
-    pdf.save(filename)
-  } catch (err) {
-    throw err
-  }
+  pdf.addImage(imgData, 'PNG', (pageWidth - imgWidth) / 2, 20, imgWidth, imgHeight)
+  pdf.save(filename)
 }
