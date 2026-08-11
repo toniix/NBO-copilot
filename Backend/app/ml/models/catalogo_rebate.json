@@ -1,0 +1,32 @@
+{
+  "precio": {
+    "estrategia": "Ofrecer la variante más económica de MT o resaltar el ahorro exacto en soles",
+    "argumento_base": "Entiendo que el precio es una preocupación. Con Movistar Total en realidad terminas pagando menos que si tuvieras cada servicio por separado — te muestro el detalle de cuánto ahorrarías exactamente al mes.",
+    "usa_variable": "ahorro_potencial_mt (Fase 2) para dar el número exacto, no una promesa genérica"
+  },
+  "no_necesita": {
+    "estrategia": "Mostrar la brecha de consumo real — que vea el beneficio que ya está desperdiciando",
+    "argumento_base": "Veo que en los últimos meses tu consumo de datos superó varias veces lo que incluye tu plan actual — con esta oferta ese excedente ya no te cuesta aparte.",
+    "usa_variable": "brecha_datos (Fase 2) para personalizar con su patrón de consumo real"
+  },
+  "ya_tiene_similar": {
+    "estrategia": "Diferenciar por el ahorro de consolidar, no por tener 'más'",
+    "argumento_base": "La diferencia no es tener más servicios, es tenerlos juntos en una sola factura con hasta 50% de descuento frente a pagarlos por separado.",
+    "usa_variable": "catalogo: ahorro_pct de la variante MT correspondiente"
+  },
+  "mal_momento": {
+    "estrategia": "No insistir ahora — agendar seguimiento, no repetir la oferta de inmediato",
+    "argumento_base": "Sin problema, no hay apuro. ¿Te parece si te contacto la próxima semana para retomarlo con calma?",
+    "usa_variable": "fecha del ofrecimiento, para no volver a ofrecer antes de X días (evitar fatiga)"
+  },
+  "no_confia": {
+    "estrategia": "Transparencia y prueba social — nunca presión",
+    "argumento_base": "Entiendo la duda. Puedes darlo de baja sin penalidad si no cumple lo prometido en el primer mes — y aquí puedes ver los detalles exactos del contrato.",
+    "usa_variable": "ninguna adicional — es el único motivo donde el mensaje no se personaliza con datos,       sino con garantías explícitas"
+  },
+  "otro": {
+    "estrategia": "No forzar un argumento genérico — derivar a un asesor humano",
+    "argumento_base": "Quedo atento por si más adelante te interesa retomarlo, o si prefieres que un asesor te llame para resolver dudas puntuales.",
+    "usa_variable": "ninguna — motivo demasiado heterogéneo para automatizar una única respuesta"
+  }
+}

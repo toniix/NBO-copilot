@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.pkl
+*.log
+.DS_Store
+app/data/clientes.csv
+app/ml/catalog_index/
+.agents/*
+.venv*
