@@ -1,15 +1,19 @@
 """
 generate_models.py
 ------------------
-Script one-shot para generar y exportar los modelos XGBoost (.pkl)
-entrenados con el dataset sintético de clientes de Movistar.
+⚠️  DEPRECADO — NO EJECUTAR EN PRODUCCIÓN
 
-Ejecutar desde la raíz del proyecto backend:
-    python scripts/generate_models.py
+Este script generó los modelos placeholder sintéticos (churn_model.pkl y
+mt_propensity_model.pkl) usando etiquetas construidas por reglas de negocio
+manuales, durante la fase de desarrollo inicial del backend.
 
-Genera:
-    app/ml/models/churn_model.pkl
-    app/ml/models/mt_propensity_model.pkl
+Los modelos oficiales provienen del equipo de Estadística (FASE 8) y están
+ubicados en ModelosML/FASE 8/. Ya están copiados en Backend/app/ml/models/:
+  - churn_segmentacion.pkl     ← ModelosML/FASE 8/churn_model.pkl
+  - modelo_propension.pkl      ← ModelosML/FASE 8/modelo_final_validado.pkl
+
+Ejecutar este script sobreescribiría esos artefactos oficiales con versiones
+sintéticas inferiores y rompería el comportamiento del sistema en producción.
 """
 
 from __future__ import annotations

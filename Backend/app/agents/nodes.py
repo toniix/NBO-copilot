@@ -221,13 +221,19 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
     tiene_movil = profile.get("tiene_movil", False)
     tiene_hogar = profile.get("tiene_hogar", False)
 
-    # Prefieren ofertas MT: alto churn (retención) o alta propensión a MT
-    prefer_mt = (churn > CHURN_HIGH_THRESHOLD and not es_mt) or (
-        elegible_mt and mt_prop > 0.50 and not es_mt
-    )
+    # Consistente con _prefer_mt() en catalog_retriever:
+    # elegible_mt es condición necesaria, y la propensidad debe superar 0.65
+    prefer_mt = not es_mt and elegible_mt and mt_prop > 0.65
 
-    ranked = sorted(offers, key=lambda o: (1.0 if is_mt_offer(o) else 0.0) if prefer_mt else 0.0,
-                    reverse=True)
+    ranked = sorted(
+        offers,
+        key=lambda o: (
+            1.0 if is_mt_offer(o) and prefer_mt else
+            -0.3 if is_mt_offer(o) and not prefer_mt else
+            o.get("score", 0.0)
+        ),
+        reverse=True,
+    )
 
     if prefer_mt:
         candidates = [o for o in ranked if is_mt_offer(o)]

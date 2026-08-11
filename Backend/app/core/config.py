@@ -19,8 +19,6 @@ class Settings(BaseSettings):
 
     DATA_PATH: str = "app/data/clientes.csv"
     CHURN_MODEL_PATH: str = "app/ml/models/churn_segmentacion.pkl"
-    MT_MODEL_PATH: str = "app/ml/models/mt_propensity_model.pkl"
-    ACCEPTANCE_MODEL_PATH: str = "app/ml/models/acceptance_model.pkl"
     PROPENSION_MODEL_PATH: str = "app/ml/models/modelo_propension.pkl"
     REBATE_CATALOG_PATH: str = "app/ml/models/catalogo_rebate.json"
 
@@ -40,14 +38,6 @@ class Settings(BaseSettings):
     @property
     def churn_model_path_full(self) -> Path:
         return BASE_DIR / self.CHURN_MODEL_PATH
-
-    @property
-    def mt_model_path_full(self) -> Path:
-        return BASE_DIR / self.MT_MODEL_PATH
-
-    @property
-    def acceptance_model_path_full(self) -> Path:
-        return BASE_DIR / self.ACCEPTANCE_MODEL_PATH
 
     @property
     def propension_model_path_full(self) -> Path:

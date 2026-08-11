@@ -1,12 +1,15 @@
 """
 model_loader.py
 ---------------
-Carga los modelos .pkl una sola vez en memoria (singleton pattern).
-Provee:
-  - score_customer()          -> churn_risk (segmentación KMeans de FASE 8 mapeada a
-                                 0-1) y mt_propensity (derivada del modelo de aceptación)
-  - score_offer_acceptance()  -> p_acceptance por oferta (pipeline de Estadística)
-  - derive_mt_propensity()    -> propensión MT = promedio de p_acceptance de ofertas MT
+Carga los modelos oficiales de FASE 8 una sola vez en memoria (singleton pattern).
+Modelos cargados:
+  - churn_segmentacion.pkl    -> KMeans no supervisado (FASE 8) que clasifica al cliente
+                                 en {riesgo_bajo, riesgo_medio_bajo, riesgo_medio_alto,
+                                 riesgo_alto}. La etiqueta se mapea a churn_risk (0-1).
+  - modelo_propension.pkl     -> Pipeline OHE + XGBoost (FASE 8) que predice p_acceptance
+                                 por oferta. Se usa tanto para score_offers_acceptance()
+                                 como para derive_mt_propensity() (promedio sobre ofertas MT).
+  - catalogo_rebate.json      -> Estrategias de rebate por motivo de rechazo (FASE 6).
 """
 
 from __future__ import annotations
@@ -25,39 +28,30 @@ from app.ml.channel_recommender import recomendar_canal, CHURN_LABEL_TO_RISK
 # Singleton — los modelos se cargan una vez al arrancar la app
 # ---------------------------------------------------------------------------
 _churn_model: Any = None
-_mt_model: Any = None
 _propension_model: Any = None
 _rebate_catalog: dict = {}
 
 
 def load_models() -> None:
-    """Carga los modelos desde disco. Llamar desde el lifespan de FastAPI."""
-    global _churn_model, _mt_model, _propension_model, _rebate_catalog
+    """Carga los modelos oficiales de FASE 8 desde disco. Llamar desde el lifespan de FastAPI."""
+    global _churn_model, _propension_model, _rebate_catalog
 
     churn_path = settings.churn_model_path_full
-    mt_path = settings.mt_model_path_full
-
     if not churn_path.exists():
         raise FileNotFoundError(
-            f"Modelo de churn no encontrado en: {churn_path}. "
-            "Ejecuta: python scripts/generate_models.py"
+            f"Modelo de segmentación de churn no encontrado en: {churn_path}. "
+            "Copia el archivo desde ModelosML/FASE 8/churn_model.pkl"
         )
-    if not mt_path.exists():
-        raise FileNotFoundError(
-            f"Modelo MT no encontrado en: {mt_path}. "
-            "Ejecuta: python scripts/generate_models.py"
-        )
-
     _churn_model = joblib.load(churn_path)
-    _mt_model = joblib.load(mt_path)
 
-    # Modelo de aceptación/propensión (pipeline de Estadística): opcional,
-    # si no existe p_acceptance se degrada a 0 y mt_propensity usa el modelo MT.
+    # Pipeline de propensión (FASE 8): requerido para p_acceptance y mt_propensity.
     prop_path = settings.propension_model_path_full
-    if prop_path.exists():
-        _propension_model = joblib.load(prop_path)
-    else:
-        _propension_model = None
+    if not prop_path.exists():
+        raise FileNotFoundError(
+            f"Modelo de propensión no encontrado en: {prop_path}. "
+            "Copia el archivo desde ModelosML/FASE 8/modelo_final_validado.pkl"
+        )
+    _propension_model = joblib.load(prop_path)
 
     # Catálogo de rebates (FASE 6) — estrategias por motivo de rechazo.
     rebate_path = settings.rebate_catalog_path_full
@@ -65,34 +59,6 @@ def load_models() -> None:
         with open(rebate_path, encoding="utf-8") as f:
             _rebate_catalog = json.load(f)
 
-
-def _build_feature_vector(profile: dict) -> np.ndarray:
-    """
-    Convierte el perfil del cliente en un vector de features numérico.
-    El orden DEBE coincidir con el usado en el entrenamiento (generate_models.py).
-    """
-    features = [
-        float(profile.get("antiguedad_meses", 0)),
-        float(profile.get("consumo_datos_gb_prom", 0)),
-        float(profile.get("consumo_voz_min_prom", 0)),
-        float(profile.get("consumo_sms_prom", 0)),
-        float(profile.get("uso_app_prom", 0)),
-        float(profile.get("monto_facturado_prom", 0)),
-        float(profile.get("monto_facturado_prom_6m", 0)),
-        float(profile.get("dias_mora_prom", 0)),
-        float(profile.get("meses_moroso", 0)),
-        float(profile.get("n_reclamos", 0)),
-        float(profile.get("n_actividad_canal", 0)),
-        float(profile.get("ratio_uso_datos", 0)),
-        float(profile.get("historial_mora", 0)),
-        # Booleanos → 0/1
-        1.0 if profile.get("tiene_movil") else 0.0,
-        1.0 if profile.get("tiene_hogar") else 0.0,
-        1.0 if profile.get("tiene_internet_hogar") else 0.0,
-        1.0 if profile.get("es_usuario_app") else 0.0,
-        1.0 if profile.get("elegible_mt") else 0.0,
-    ]
-    return np.array(features, dtype=np.float32).reshape(1, -1)
 
 
 def _churn_features_vector(profile: dict) -> np.ndarray:
@@ -125,11 +91,6 @@ def _score_churn_segmentation(profile: dict) -> float:
     La etiqueta se mapea a un score 0-1 (CHURN_LABEL_TO_RISK) para preservar
     el contrato del sistema (float con umbral 0.60).
     """
-    if not isinstance(_churn_model, dict) or "kmeans" not in _churn_model:
-        # Fallback: modelo de churn supervisado (XGBoost) si existe predict_proba
-        X = _build_feature_vector(profile)
-        return float(_churn_model.predict_proba(X)[0][1])
-
     bundle = _churn_model
     scaler = bundle["scaler"]
     kmeans = bundle["kmeans"]
@@ -155,15 +116,14 @@ def get_churn_label(profile: dict) -> str:
 
 def derive_mt_propensity(profile: dict) -> float:
     """
-    Propensión a Movistar Total derivada del modelo de aceptación:
-    promedio de p_acceptance sobre las ofertas MT del catálogo.
-    Fallback: modelo MT actual si el de aceptación no está cargado.
+    Propensión a Movistar Total derivada del pipeline de aceptación (FASE 8):
+    promedio de p_acceptance sobre las 3 ofertas MT del catálogo.
+
+    Un valor alto indica que el modelo predice que el cliente aceptaría
+    una oferta MT si se le presentara. Se usa como señal en _prefer_mt().
     """
     if _propension_model is None:
-        if _mt_model is None:
-            return 0.0
-        X = _build_feature_vector(profile)
-        return round(float(_mt_model.predict_proba(X)[0][1]), 4)
+        return 0.0
 
     from app.ml.catalog_retriever import get_mt_offers_cached
     offers = get_mt_offers_cached()
@@ -192,18 +152,14 @@ def score_customer_full(profile: dict) -> dict:
             "El modelo de churn no ha sido cargado. Verifica el lifespan de FastAPI."
         )
 
-    if isinstance(_churn_model, dict) and "kmeans" in _churn_model:
-        bundle = _churn_model
-        X = _churn_features_vector(profile)
-        X_scaled = bundle["scaler"].transform(X)
-        cluster_id = int(bundle["kmeans"].predict(X_scaled)[0])
-        etiqueta = bundle.get("mapa_cluster_a_etiqueta", {}).get(cluster_id, "riesgo_medio_bajo")
-        churn_risk = CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
-        churn_label = etiqueta
-    else:
-        X = _build_feature_vector(profile)
-        churn_risk = float(_churn_model.predict_proba(X)[0][1])
-        churn_label = ""
+    # churn_segmentacion.pkl es siempre el bundle KMeans de FASE 8
+    bundle = _churn_model
+    X = _churn_features_vector(profile)
+    X_scaled = bundle["scaler"].transform(X)
+    cluster_id = int(bundle["kmeans"].predict(X_scaled)[0])
+    etiqueta = bundle.get("mapa_cluster_a_etiqueta", {}).get(cluster_id, "riesgo_medio_bajo")
+    churn_risk = CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
+    churn_label = etiqueta
 
     mt_proba = derive_mt_propensity(profile)
 

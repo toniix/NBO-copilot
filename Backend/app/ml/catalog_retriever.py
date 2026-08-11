@@ -19,7 +19,6 @@ from chromadb import PersistentClient
 from chromadb.utils import embedding_functions
 
 from app.core.config import settings
-from app.ml.feature_engineering import CHURN_HIGH_THRESHOLD
 from app.agents.utils import is_mt_offer
 
 logger = logging.getLogger(__name__)
@@ -132,11 +131,17 @@ def retrieve_offers(
     # 3) Boosting híbrido: si churn/alta propensión MT, priorizar ofertas MT
     offers = _boost_relevant_offers(offers, profile, scores)
 
-    # Ordenar por relevancia combinada: MT boost primero (mirror de regla de negocio)
+    # Ordenar por relevancia combinada:
+    # - Ofertas MT con prefer_mt activo van primeras
+    # - Ofertas NO-MT o MT sin prefer_mt se ordenan por score semántico
+    # - Ofertas MT cuando prefer_mt=False reciben penalización para no desplazar
+    #   por inercia a ofertas más relevantes para el cliente
+    prefer = _prefer_mt(profile, scores)
     offers.sort(
         key=lambda o: (
-            1.0 if is_mt_offer(o) and _prefer_mt(profile, scores) else 0.0,
-            o.get("score", 0.0),
+            1.0 if is_mt_offer(o) and prefer else
+            -0.3 if is_mt_offer(o) and not prefer else
+            o.get("score", 0.0)
         ),
         reverse=True,
     )
@@ -176,17 +181,30 @@ def _build_query(profile: dict, scores: dict) -> str:
 
 
 def _prefer_mt(profile: dict, scores: dict) -> bool:
-    """¿Conviene recomendar ofertas Movistar Total al cliente?"""
-    churn = float(scores.get("churn_risk", 0) or 0)
-    mt_prop = float(scores.get("mt_propensity", 0) or 0)
+    """
+    Decide si conviene recomendar ofertas Movistar Total al cliente.
+
+    Condiciones:
+    - Clientes ya MT: solo si hay un upgrade superior disponible.
+    - Clientes NO-MT: deben ser elegibles Y tener alta propensión MT (> 0.65).
+      El umbral 0.65 discrimina dentro del grupo de elegibles entre quienes
+      el modelo (FASE 8) predice alta vs. baja probabilidad de aceptar una oferta MT.
+      Nota: el churn alto por sí solo NO activa la recomendación MT si el cliente
+      no es elegible — en ese caso el RAG elige la mejor oferta de retención.
+    """
     es_mt = profile.get("es_movistar_total", False)
     elegible_mt = profile.get("elegible_mt", False)
-    # Cliente MT: se le ofrece upgrade premium dentro de la familia MT
+    mt_prop = float(scores.get("mt_propensity", 0) or 0)
+
     if es_mt:
         return _tiene_upgrade_mt_superior(profile)
-    return (churn > CHURN_HIGH_THRESHOLD and not es_mt) or (
-        elegible_mt and mt_prop > 0.50 and not es_mt
-    )
+
+    # Condición necesaria: el cliente debe ser elegible para contratar MT
+    if not elegible_mt:
+        return False
+
+    # Condición suficiente: propensidad alta según el modelo de FASE 8
+    return mt_prop > 0.65
 
 
 def _tiene_upgrade_mt_superior(profile: dict) -> bool:
