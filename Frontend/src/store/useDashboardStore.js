@@ -159,8 +159,8 @@ const useDashboardStore = create((set, get) => ({
     }
   })(),
 
-  searchClient: async (phone) => {
-    const normalizedPhone = phone.trim()
+  searchClient: async (identifier) => {
+    const normalizedPhone = identifier.trim().toUpperCase()
     set({ searchQuery: normalizedPhone, isLoading: true, clientData: null, error: null })
     const cachedCustomers = JSON.parse(localStorage.getItem(CUSTOMER_CACHE_KEY) || '{}')
     if (cachedCustomers[normalizedPhone]) {
