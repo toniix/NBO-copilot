@@ -1,72 +1,70 @@
 import { useState } from "react";
-import { CircleAlert, Copy, Gift, Phone, ShieldCheck, UserRound } from "lucide-react";
 
 const SkeletonLine = ({ className = "" }) => (
   <div className={`animate-pulse rounded-md bg-slate-200 ${className}`} />
 );
 
-const ResultCard = ({ title, icon, children, className = "" }) => (
-  <section
-    className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}
-  >
-    <div className="mb-6 flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-        {icon}
-      </div>
-      <h2 className="text-base font-semibold text-[#313235]">{title}</h2>
-    </div>
-    {children}
-  </section>
-);
+const offerCards = [
+  {
+    title: "Upgrade 30GB + Netflix",
+    price: "S/ 49.90",
+    description: "La mejor combinación de gigas y entretenimiento para el cliente.",
+    margin: "Margen alto",
+    message: "Señor cliente, le regalo 10GB extras y Netflix manteniéndole su tarifa.",
+    objectionQuestion: "¿Si dice que está caro?",
+    objectionAnswer: "Le descontamos S/ 10 los primeros 3 meses.",
+    recommended: true,
+  },
+  {
+    title: "Plan 25GB Fidelización",
+    price: "S/ 44.90",
+    description: "Alternativa económica con precio rebajado.",
+    margin: "Margen medio",
+    message: "Si desea estabilidad, este plan ofrece valor con un precio especial.",
+    objectionQuestion: "¿Y si quiere conservar su tarifa actual?",
+    objectionAnswer: "Con este plan gana continuidad y ahorra en su factura mensual.",
+    recommended: false,
+  },
+  {
+    title: "Bono 10GB por 3 meses",
+    price: "S/ 39.90",
+    description: "Bono de entrada para mantener al cliente.",
+    margin: "Margen controlado",
+    message: "Este bono temporal mantiene al cliente con flexibilidad y baja inversión.",
+    objectionQuestion: "¿Prefiere una opción sin compromiso largo?",
+    objectionAnswer: "El bono le ofrece minutos extra sin subir su tarifa base.",
+    recommended: false,
+  },
+];
 
-const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
-  const [selectedObjection, setSelectedObjection] = useState("");
-  const [disposition, setDisposition] = useState("");
-  const [copyStatus, setCopyStatus] = useState("");
+const ResultsBoard = ({ isLoading, clientData, error, onAccept, onReject, salesToday, dailyTarget }) => {
+  const [selectedOffer, setSelectedOffer] = useState(0);
+  const [showObjectionReply, setShowObjectionReply] = useState(false);
+  const [offerFeedback, setOfferFeedback] = useState("");
 
-  const diagnosticBullets = [
-    "Saturación de datos en ciclos recientes",
-    "Antigüedad > 12 meses sin renovación",
-    "Índice de Retención: Crítico",
-  ];
+  const selectedCard = offerCards[selectedOffer];
 
-  const argumentText = `Presentar la propuesta de manera directa, destacando la estabilización del servicio y la mejora de condiciones. Reforzar la continuidad con bonos de fidelidad y migración escalonada para reducir el riesgo de baja.`;
-
-  const objectionAdvice = {
-    "Tarifa Elevada":
-      "Recomendar un bono de fidelidad escalonado y recalcular el ahorro neto sobre el plan actual.",
-    "Permanencia / Contrato":
-      "Ofrecer un esquema de migración gradual con revisión contractual a 30 días para evitar cancelación inmediata.",
-    "Satisfacción Actual":
-      "Validar los puntos de satisfacción clave y proponer una mejora puntual sin cambiar la base tarifaria.",
-  };
-
-  const handleCopyArgument = async () => {
-    try {
-      await navigator.clipboard.writeText(argumentText);
-      setCopyStatus("Texto copiado");
-      setTimeout(() => setCopyStatus(""), 2000);
-    } catch (error) {
-      setCopyStatus("No se pudo copiar");
-      setTimeout(() => setCopyStatus(""), 2000);
+  const handleReject = () => {
+    setOfferFeedback("Cliente no aceptó la oferta.");
+    setShowObjectionReply(false);
+    if (typeof onReject === "function") {
+      onReject();
     }
   };
 
-  const handleObjectionClick = (key) => {
-    setSelectedObjection(key);
+  const handleAccept = () => {
+    if (typeof onAccept === "function") {
+      onAccept(selectedOffer);
+    }
+    setOfferFeedback(`Oferta aceptada: ${selectedCard.title}`);
+    setShowObjectionReply(false);
   };
 
   if (isLoading) {
     return (
-      <div
-        className="grid grid-cols-1 gap-5 md:grid-cols-3"
-        aria-label="Procesando análisis"
-      >
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3" aria-label="Procesando análisis">
         {[0, 1, 2].map((card) => (
-          <section
-            key={card}
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-          >
+          <section key={card} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-6 flex items-center gap-3">
               <SkeletonLine className="h-10 w-10 rounded-xl" />
               <SkeletonLine className="h-5 w-36" />
@@ -82,10 +80,7 @@ const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
 
   if (error) {
     return (
-      <div
-        role="alert"
-        className="mx-auto max-w-3xl rounded-xl border border-red-100 bg-red-50 px-5 py-4 text-center text-sm text-red-700"
-      >
+      <div role="alert" className="mx-auto max-w-3xl rounded-xl border border-red-100 bg-red-50 px-5 py-4 text-center text-sm text-red-700">
         {error}
       </div>
     );
@@ -93,117 +88,118 @@ const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
 
   if (!clientData) return null;
 
+  const clientName = clientData.name?.split(" ")[0] || clientData.name;
+
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-4">
-      <ResultCard
-        title="Perfil del Cliente"
-        icon={<UserRound className="h-5 w-5" aria-hidden="true" />}
-      >
-        <dl className="space-y-4 text-sm">
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-slate-500">Nombre</dt>
-            <dd className="font-medium text-[#313235]">{clientData.name}</dd>
+    <div className="space-y-6">
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              Propuesta Comercial
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">
+              Oferta para {clientData.name}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Selecciona la alternativa presentada y registra el resultado de la conversación.
+            </p>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-slate-500">Celular</dt>
-            <dd className="flex items-center gap-2 font-medium text-[#313235]">
-              <Phone className="h-4 w-4 text-[#019DF4]" />
-              {clientData.phone}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-slate-500">Segmento</dt>
-            <dd className="font-medium text-[#313235]">{clientData.currentPlan}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-slate-500">Antigüedad</dt>
-            <dd className="font-medium text-[#313235]">{clientData.fidelity}</dd>
-          </div>
-        </dl>
-      </ResultCard>
-
-      <ResultCard
-        title="Diagnóstico del Perfil"
-        icon={<ShieldCheck className="h-5 w-5 text-slate-700" aria-hidden="true" />}
-        className="border-slate-300"
-      >
-        <ul className="space-y-3 text-sm text-slate-700">
-          {diagnosticBullets.map((bullet) => (
-            <li key={bullet} className="flex items-start gap-3">
-              <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-slate-700" />
-              <span>{bullet}</span>
-            </li>
-          ))}
-        </ul>
-      </ResultCard>
-
-      <ResultCard
-        title="Argumentario Recomendado"
-        icon={<Copy className="h-5 w-5 text-slate-700" aria-hidden="true" />}
-        className="border-slate-300"
-      >
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800">
-          {argumentText}
-        </div>
-        <button
-          type="button"
-          onClick={handleCopyArgument}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
-        >
-          <Copy className="h-4 w-4" aria-hidden="true" />
-          Copiar texto
-        </button>
-        {copyStatus && (
-          <p className="mt-3 text-sm font-medium text-slate-600">{copyStatus}</p>
-        )}
-      </ResultCard>
-
-      <ResultCard
-        title="Acciones de Retención"
-        icon={<Gift className="h-5 w-5 text-slate-700" aria-hidden="true" />}
-        className="border-slate-300"
-      >
-        <div className="space-y-3">
-          {Object.keys(objectionAdvice).map((key) => (
+          <div className="flex flex-col gap-3 sm:flex-row">
             <button
-              key={key}
               type="button"
-              onClick={() => handleObjectionClick(key)}
-              className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition ${selectedObjection === key ? 'border-slate-700 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+              onClick={handleReject}
+              className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              {key}
+              No aceptó
             </button>
-          ))}
-        </div>
-        {selectedObjection && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
-            <p className="font-semibold text-slate-900">Ajuste técnico recomendado</p>
-            <p className="mt-2">{objectionAdvice[selectedObjection]}</p>
+            <button
+              type="button"
+              onClick={handleAccept}
+              className="rounded-2xl bg-[#5eb800] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#4fa000]"
+            >
+              Aceptó oferta
+            </button>
           </div>
-        )}
-      </ResultCard>
+        </div>
 
-      <ResultCard
-        title="Registro de Resultado"
-        icon={<CircleAlert className="h-5 w-5 text-slate-700" aria-hidden="true" />}
-        className="xl:col-span-4"
-      >
-        <label className="block text-sm font-semibold text-slate-700">Disposition CRM</label>
-        <select
-          value={disposition}
-          onChange={(event) => setDisposition(event.target.value)}
-          className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-        >
-          <option value="">Selecciona un resultado</option>
-          <option value="Cierre Efectivo">Cierre Efectivo</option>
-          <option value="Rechazado - Limitación Económica">Rechazado - Limitación Económica</option>
-          <option value="Seguimiento Omnicanal (WhatsApp)">Seguimiento Omnicanal (WhatsApp)</option>
-          <option value="Llamada Posterior">Llamada Posterior</option>
-        </select>
-        {disposition && (
-          <p className="mt-3 text-sm text-slate-600">Resultado seleccionado: {disposition}</p>
-        )}
-      </ResultCard>
+        <div className="grid gap-4 md:grid-cols-3">
+          {offerCards.map((card, index) => {
+            const isSelected = selectedOffer === index;
+            return (
+              <article
+                key={card.title}
+                role="button"
+                onClick={() => setSelectedOffer(index)}
+                className={`relative flex h-full cursor-pointer flex-col justify-between rounded-3xl border p-5 shadow-sm transition duration-200 ${
+                  isSelected
+                    ? "border-[#5eb800] bg-[#f4fbf0] shadow-sm"
+                    : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"
+                }`}
+              >
+                <div>
+                  <div className={`absolute right-5 top-5 inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold shadow-sm ${
+                    isSelected ? "border-[#5eb800] bg-[#ebffe0] text-[#5eb800]" : "border-slate-200 bg-white text-slate-500"
+                  }`}>
+                    {isSelected ? "✓" : "◯"}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      {card.recommended && (
+                        <span className="inline-flex rounded-full bg-[#5eb800] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                          Recomendada
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <h3 className="mt-5 text-lg font-semibold text-slate-900">{card.title}</h3>
+                  <p className="mt-3 text-4xl font-bold text-slate-950">{card.price}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{card.description}</p>
+                </div>
+                <div className="mt-auto rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-semibold text-slate-700">
+                  {card.margin}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-800">
+          <p className="font-medium text-slate-900">{selectedCard.message}</p>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={() => setShowObjectionReply((current) => !current)}
+            className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            {selectedCard.objectionQuestion}
+          </button>
+          {showObjectionReply && (
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+              {selectedCard.objectionAnswer}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Ventas de hoy</p>
+          <p className="mt-3 text-3xl font-semibold text-slate-900">{salesToday}</p>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Meta diaria</p>
+          <p className="mt-3 text-3xl font-semibold text-slate-900">{dailyTarget}</p>
+        </div>
+      </section>
+
+      {offerFeedback && (
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+          {offerFeedback}
+        </div>
+      )}
     </div>
   );
 };
