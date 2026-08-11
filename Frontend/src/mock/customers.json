@@ -1,0 +1,18 @@
+[
+  {
+    "dni": "12345678",
+    "phone": "999999999",
+    "name": "Juan Pérez",
+    "feature_a": 1.2,
+    "feature_b": 0,
+    "feature_c": 42
+  },
+  {
+    "dni": "87654321",
+    "phone": "988888888",
+    "name": "María López",
+    "feature_a": 0.6,
+    "feature_b": 1,
+    "feature_c": 10
+  }
+]
