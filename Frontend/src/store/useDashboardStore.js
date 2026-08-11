@@ -18,19 +18,60 @@ const demoClient = {
 const buildClientDataFromRecommendation = (recommendation, phone) => {
   const profile = recommendation.customer_profile || {}
   const scores = recommendation.ml_scores || {}
+  const offer = recommendation.offer_selected || {}
   const churnRiskValue = Number(scores.churn_risk || 0)
+  const clienteId = recommendation.cliente_id || profile.cliente_id || ''
 
   return {
-    dni: recommendation.cliente_id || profile.cliente_id || '',
-    name: profile.nombre || profile.name || profile.cliente_id || `Cliente ${phone}`,
+    // Identidad y trazabilidad
+    dni: clienteId,
+    gestion_id: recommendation.gestion_id || '',
+    name: profile.nombre || profile.name || clienteId || `Cliente ${phone}`,
     phone,
-    currentPlan: profile.plan_actual_desc || profile.plan_actual_id || profile.plan_actual || 'Plan actual',
-    arpu: Number(profile.monto_facturado_prom || profile.arpu || 0),
+
+    // Perfil completo del backend (customer_profile)
+    profile,
+
+    // Scores ML
+    scores,
     churnScore: Math.round(churnRiskValue * 100),
     churnRisk: `${Math.round(churnRiskValue * 100)}%`,
-    nextBestOffer: recommendation.offer_selected?.nombre_oferta || recommendation.offer_selected?.name || 'Oferta recomendada',
+    churnLabel: recommendation.churn_label || '',
+    churnAlert: Boolean(recommendation.churn_alert),
+    mtPropensity: Number(scores.mt_propensity || 0),
+    pitchType: recommendation.pitch_type || '',
+
+    // Oferta seleccionada (NBO)
+    offer,
+    offerPrice: offer.precio_mensual,
+    offerGb: offer.gb_incluidos,
+    offerPct: offer.p_acceptance,
+    offers: recommendation.offers_retrieved || [],
+    nextBestOffer: offer.nombre_oferta || recommendation.nbo_selected || 'Oferta recomendada',
+    nboSelected: recommendation.nbo_selected || '',
+    justification: recommendation.justification || '',
+
+    // Guion de venta
+    salesPitch: recommendation.sales_pitch || '',
+
+    // Canal, momento y rebates
+    channel: recommendation.channel_recommendation || {},
+    rebates: recommendation.rebate_prepared || [],
+
+    // Decisión del pipeline
+    decisionThreshold: recommendation.decision_threshold ?? null,
+    aceptaPredicho: recommendation.acepta_predicho ?? null,
+
+    // Diagnóstico
+    nodeTimings: recommendation.node_timings || {},
+
+    // Compatibilidad con vistas anteriores / simulación local
+    currentPlan: profile.plan_actual_desc || profile.plan_actual_id || profile.plan_actual || 'Plan actual',
+    arpu: Number(profile.monto_facturado_prom || profile.arpu || 0),
     fidelity: profile.antiguedad_categoria_simple || profile.fidelity || 'Sin dato',
-    gestion_id: recommendation.gestion_id || '',
+
+    // Payload crudo por si el UI necesita algún campo no mapeado
+    raw: recommendation,
   }
 }
 
@@ -159,8 +200,8 @@ const useDashboardStore = create((set, get) => ({
     }
   })(),
 
-  searchClient: async (phone) => {
-    const normalizedPhone = phone.trim()
+  searchClient: async (identifier) => {
+    const normalizedPhone = identifier.trim().toUpperCase()
     set({ searchQuery: normalizedPhone, isLoading: true, clientData: null, error: null })
     const cachedCustomers = JSON.parse(localStorage.getItem(CUSTOMER_CACHE_KEY) || '{}')
     if (cachedCustomers[normalizedPhone]) {

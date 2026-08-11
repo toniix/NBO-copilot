@@ -13,6 +13,36 @@ const OfferDetailsTab = ({ clientData, selectedOfferId, outcome, onSelectOffer, 
         <button type="button" onClick={onClose} aria-label="Cerrar detalle de ofertas" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#313235]"><X className="h-5 w-5" aria-hidden="true" /></button>
       </div>
 
+      {clientData.offer && clientData.offer.nombre_oferta && (
+        <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-[#5BC500]/40 bg-[#5BC500]/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#3f8b00]">Oferta recomendada por IA</p>
+            <p className="mt-1 text-lg font-bold text-[#313235]">{clientData.offer.nombre_oferta}</p>
+            {clientData.justification && <p className="mt-1 text-sm leading-6 text-slate-600">{clientData.justification}</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-5 text-right">
+            {clientData.offer.precio_mensual != null && (
+              <div>
+                <p className="text-2xl font-extrabold text-[#313235]">S/ {Number(clientData.offer.precio_mensual).toFixed(2)}</p>
+                <p className="text-xs text-slate-500">al mes</p>
+              </div>
+            )}
+            {clientData.offer.gb_incluidos != null && clientData.offer.gb_incluidos < 9999 && (
+              <div>
+                <p className="text-xl font-bold text-[#313235]">{clientData.offer.gb_incluidos} GB</p>
+                <p className="text-xs text-slate-500">de datos</p>
+              </div>
+            )}
+            {clientData.offer.p_acceptance != null && (
+              <div>
+                <p className="text-xl font-bold text-[#5BC500]">{Math.round(clientData.offer.p_acceptance * 100)}%</p>
+                <p className="text-xs text-slate-500">aceptación</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         {offerCatalog.map((offer) => {
           const selected = selectedOfferId === offer.id
