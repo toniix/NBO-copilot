@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CircleAlert, Gift, Phone, ShieldCheck, UserRound } from "lucide-react";
+import { CircleAlert, Copy, Gift, Phone, ShieldCheck, UserRound } from "lucide-react";
 
 const SkeletonLine = ({ className = "" }) => (
   <div className={`animate-pulse rounded-md bg-slate-200 ${className}`} />
@@ -20,9 +20,41 @@ const ResultCard = ({ title, icon, children, className = "" }) => (
 );
 
 const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
-  const [offerMessage, setOfferMessage] = useState("");
+  const [selectedObjection, setSelectedObjection] = useState("");
+  const [disposition, setDisposition] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
 
-  console.log("clientData", clientData);
+  const diagnosticBullets = [
+    "Saturación de datos en ciclos recientes",
+    "Antigüedad > 12 meses sin renovación",
+    "Índice de Retención: Crítico",
+  ];
+
+  const argumentText = `Presentar la propuesta de manera directa, destacando la estabilización del servicio y la mejora de condiciones. Reforzar la continuidad con bonos de fidelidad y migración escalonada para reducir el riesgo de baja.`;
+
+  const objectionAdvice = {
+    "Tarifa Elevada":
+      "Recomendar un bono de fidelidad escalonado y recalcular el ahorro neto sobre el plan actual.",
+    "Permanencia / Contrato":
+      "Ofrecer un esquema de migración gradual con revisión contractual a 30 días para evitar cancelación inmediata.",
+    "Satisfacción Actual":
+      "Validar los puntos de satisfacción clave y proponer una mejora puntual sin cambiar la base tarifaria.",
+  };
+
+  const handleCopyArgument = async () => {
+    try {
+      await navigator.clipboard.writeText(argumentText);
+      setCopyStatus("Texto copiado");
+      setTimeout(() => setCopyStatus(""), 2000);
+    } catch (error) {
+      setCopyStatus("No se pudo copiar");
+      setTimeout(() => setCopyStatus(""), 2000);
+    }
+  };
+
+  const handleObjectionClick = (key) => {
+    setSelectedObjection(key);
+  };
 
   if (isLoading) {
     return (
@@ -62,7 +94,7 @@ const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
   if (!clientData) return null;
 
   return (
-    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-4">
       <ResultCard
         title="Perfil del Cliente"
         icon={<UserRound className="h-5 w-5" aria-hidden="true" />}
@@ -81,129 +113,96 @@ const ResultsBoard = ({ isLoading, clientData, error, onOffer }) => {
           </div>
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-500">Segmento</dt>
-            <dd className="font-medium text-[#313235]">
-              {clientData.currentPlan}
-            </dd>
+            <dd className="font-medium text-[#313235]">{clientData.currentPlan}</dd>
           </div>
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-500">Antigüedad</dt>
-            <dd className="font-medium text-[#313235]">
-              {clientData.fidelity}
-            </dd>
+            <dd className="font-medium text-[#313235]">{clientData.fidelity}</dd>
           </div>
         </dl>
       </ResultCard>
 
       <ResultCard
-        title="Next Best Offer"
-        icon={<Gift className="h-5 w-5 text-[#5BC500]" aria-hidden="true" />}
-        className="border-[#5BC500]/40"
+        title="Diagnóstico del Perfil"
+        icon={<ShieldCheck className="h-5 w-5 text-slate-700" aria-hidden="true" />}
+        className="border-slate-300"
       >
-        <div className="rounded-xl bg-[#5BC500]/10 p-4">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#3f8b00]">
-            Oferta recomendada
-          </p>
-          <p className="text-lg font-semibold text-[#313235]">
-            {clientData.nextBestOffer}
-          </p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Oferta personalizada según el perfil del cliente.
-          </p>
+        <ul className="space-y-3 text-sm text-slate-700">
+          {diagnosticBullets.map((bullet) => (
+            <li key={bullet} className="flex items-start gap-3">
+              <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-slate-700" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      </ResultCard>
+
+      <ResultCard
+        title="Argumentario Recomendado"
+        icon={<Copy className="h-5 w-5 text-slate-700" aria-hidden="true" />}
+        className="border-slate-300"
+      >
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800">
+          {argumentText}
         </div>
         <button
           type="button"
-          onClick={onOffer}
-          className="mt-5 inline-flex items-center justify-center rounded-lg bg-[#5BC500] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4da900] focus:outline-none focus:ring-4 focus:ring-[#5BC500]/20"
+          onClick={handleCopyArgument}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300"
         >
-          Ofrecer Plan
+          <Copy className="h-4 w-4" aria-hidden="true" />
+          Copiar texto
         </button>
-        {offerMessage && (
-          <p role="status" className="mt-3 text-sm font-medium text-[#3f8b00]">
-            {offerMessage}
-          </p>
+        {copyStatus && (
+          <p className="mt-3 text-sm font-medium text-slate-600">{copyStatus}</p>
         )}
       </ResultCard>
 
       <ResultCard
-        title="Riesgo de Churn"
-        icon={
-          <CircleAlert className="h-5 w-5 text-[#FF6B35]" aria-hidden="true" />
-        }
+        title="Acciones de Retención"
+        icon={<Gift className="h-5 w-5 text-slate-700" aria-hidden="true" />}
+        className="border-slate-300"
       >
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-4">
-            {/* Circular gauge */}
-            {(() => {
-              const score =
-                typeof clientData.churnScore === "number"
-                  ? clientData.churnScore
-                  : Number((clientData.churnRisk.match(/\d+/) || [0])[0]);
-              const pct = Math.round(score);
-              const radius = 36;
-              const stroke = 10;
-              const normalizedRadius = radius - stroke / 2;
-              const circumference = normalizedRadius * 2 * Math.PI;
-              const offset = circumference - (pct / 100) * circumference;
-              const color =
-                pct <= 30 ? "#2ECC71" : pct <= 60 ? "#F6C244" : "#FF6B35";
-              return (
-                <div className="relative flex h-24 w-24 items-center justify-center">
-                  <svg
-                    height={radius * 2}
-                    width={radius * 2}
-                    className="transform -rotate-90"
-                  >
-                    <circle
-                      stroke="#EDF2F7"
-                      fill="transparent"
-                      strokeWidth={stroke}
-                      r={normalizedRadius}
-                      cx={radius}
-                      cy={radius}
-                    />
-                    <circle
-                      stroke={color}
-                      fill="transparent"
-                      strokeWidth={stroke}
-                      strokeLinecap="round"
-                      r={normalizedRadius}
-                      cx={radius}
-                      cy={radius}
-                      strokeDasharray={`${circumference} ${circumference}`}
-                      strokeDashoffset={offset}
-                      style={{ transition: "stroke-dashoffset 800ms ease" }}
-                    />
-                  </svg>
-                  <div className="absolute text-center">
-                    <div className="text-sm font-medium text-slate-500">
-                      Riesgo
-                    </div>
-                    <div
-                      className="text-xl font-bold"
-                      style={{ color: "#313235" }}
-                    >
-                      {pct}%
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-          <div>
-            <p
-              className={`font-semibold ${(clientData.churnScore || Number((clientData.churnRisk.match(/\d+/) || [0])[0])) <= 30 ? "text-green-600" : (clientData.churnScore || Number((clientData.churnRisk.match(/\d+/) || [0])[0])) <= 60 ? "text-amber-600" : "text-red-600"}`}
+        <div className="space-y-3">
+          {Object.keys(objectionAdvice).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleObjectionClick(key)}
+              className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition ${selectedObjection === key ? 'border-slate-700 bg-slate-100' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
             >
-              {clientData.churnRisk.split(" (")[0]}
-            </p>
-            <p className="mt-1 text-sm leading-5 text-slate-500">
-              Conviene contactar al cliente esta semana.
-            </p>
+              {key}
+            </button>
+          ))}
+        </div>
+        {selectedObjection && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+            <p className="font-semibold text-slate-900">Ajuste técnico recomendado</p>
+            <p className="mt-2">{objectionAdvice[selectedObjection]}</p>
           </div>
-        </div>
-        <div className="mt-6 flex items-center gap-2 text-xs font-medium text-slate-500">
-          <ShieldCheck className="h-4 w-4 text-[#5BC500]" aria-hidden="true" />{" "}
-          Análisis generado por IA
-        </div>
+        )}
+      </ResultCard>
+
+      <ResultCard
+        title="Registro de Resultado"
+        icon={<CircleAlert className="h-5 w-5 text-slate-700" aria-hidden="true" />}
+        className="xl:col-span-4"
+      >
+        <label className="block text-sm font-semibold text-slate-700">Disposition CRM</label>
+        <select
+          value={disposition}
+          onChange={(event) => setDisposition(event.target.value)}
+          className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+        >
+          <option value="">Selecciona un resultado</option>
+          <option value="Cierre Efectivo">Cierre Efectivo</option>
+          <option value="Rechazado - Limitación Económica">Rechazado - Limitación Económica</option>
+          <option value="Seguimiento Omnicanal (WhatsApp)">Seguimiento Omnicanal (WhatsApp)</option>
+          <option value="Llamada Posterior">Llamada Posterior</option>
+        </select>
+        {disposition && (
+          <p className="mt-3 text-sm text-slate-600">Resultado seleccionado: {disposition}</p>
+        )}
       </ResultCard>
     </div>
   );
