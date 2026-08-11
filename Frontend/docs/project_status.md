@@ -12,7 +12,7 @@
 - [x] Creación de project_status.md
 
 #### 2. Stack Tecnológico Definido
-- **Frontend**: React + TypeScript
+- **Frontend**: React + JavaScript
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS
 - **State Management**: Zustand
@@ -103,7 +103,7 @@ Configurar `VITE_AI_MODEL_URL` únicamente cuando exista el servicio predictivo 
 ### Notas del Arquitecto
 - Se prioriza la escalabilidad y mantenibilidad
 - Se sigue Atomic Design para componentes
-- Se implementa TypeScript desde el inicio para type safety
+- Se implementa JavaScript único desde el inicio para mantener el stack unificado
 - La arquitectura permite fácil extensión a módulos futuros
 
 ---

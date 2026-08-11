@@ -6,7 +6,7 @@ Sistema web para consulta y gestión de clientes con riesgo de churn (baja) en e
 ## 2. Arquitectura Técnica
 
 ### Stack Tecnológico
-- **Frontend**: React 18 + TypeScript
+- **Frontend**: React 18 + JavaScript
 - **Framework**: Vite (build tool)
 - **Estilos**: Tailwind CSS + CSS Modules
 - **Routing**: React Router DOM v6

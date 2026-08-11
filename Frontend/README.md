@@ -4,7 +4,7 @@ Dashboard comercial para telecomunicaciones que ayuda a identificar riesgo de ch
 
 ## Arquitectura
 
-- **React 18 + TypeScript** con Vite.
+- **React 18 + JavaScript** con Vite.
 - **Tailwind CSS** para una interfaz responsive con identidad visual Movistar.
 - **Zustand** para autenticación, búsqueda, simulación manual y estado del dashboard.
 - **Recharts** para las métricas del supervisor.
@@ -13,7 +13,7 @@ Dashboard comercial para telecomunicaciones que ayuda a identificar riesgo de ch
 ## Funcionalidades
 
 - Dashboard del asesor en `/dashboard`.
-- Búsqueda de clientes por teléfono de 9 dígitos.
+- Búsqueda de clientes por código de cliente (ej. `CLI000013`), número de celular o DNI.
 - Perfil, riesgo de churn y Next Best Offer.
 - Modal de simulación manual cuando un cliente no se encuentra.
 - Dashboard gerencial en `/supervisor` con KPIs y retención.
@@ -92,21 +92,22 @@ No incluir claves privadas en variables `VITE_*`, porque Vite las expone al nave
 - En este prototipo de hackathon la persistencia real está deshabilitada; el equipo debe evaluar integración backend y políticas RLS cuando se pase a producción.
 
 Model serving (opcional)
--------------------------
+------------------------
 
-Para integrar un modelo pre-entrenado que calcule la probabilidad de churn, el equipo de estadística puede entregar un artefacto scikit-learn serializado con `joblib` y un archivo JSON con el orden de las features. Pasos recomendados:
+El servidor de modelos en Python (FastAPI + LangGraph) vive en `../Backend`. La capa de integración del frontend está en `src/services/api.js`, contra el endpoint `POST /api/v1/recommendation`.
 
-1. Entregar los siguientes archivos:
-	- `churn_model.joblib` — objeto scikit-learn (o pipeline) con `predict_proba`.
-	- `feature_names.json` — lista JSON con los nombres de las variables de entrada en el orden esperado por el modelo.
-
-2. Colocar ambos archivos en la carpeta `models/` del servidor (o usar el endpoint de carga).
-
-3. Ejecutar el servidor de modelo (recomendado en un entorno aislado / Docker):
+Para ejecutar el backend:
 
 ```bash
+cd ../Backend
 python -m pip install -r requirements.txt
-uvicorn src.model_server:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --reload --port 8000
+```
+
+Formato esperado por el endpoint `/predict` del servidor de modelo (terceros):
+
+```json
+{ "phone": "999999999", "clientData": { "feature_a": 1.2, "feature_b": 0, "feature_c": 42 } }
 ```
 
 4. Opcionalmente se puede subir el modelo mediante HTTP POST a `/upload-model`. Configure la variable de entorno `MODEL_UPLOAD_TOKEN` para proteger la carga y envíe el encabezado `x-upload-token` con el valor correcto.
