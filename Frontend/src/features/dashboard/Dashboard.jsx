@@ -9,7 +9,7 @@ import useDashboardStore from '../../store/useDashboardStore.js'
 import { useAuthStore } from '../../store/useAuthStore'
 
 const Dashboard = () => {
-  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, clearResults, registrarVenta } = useDashboardStore()
+  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, clearResults, registrarVenta, registerOfferOutcome } = useDashboardStore()
   const { user } = useAuthStore()
   const { salesMetrics, salesByAdvisor } = useDashboardStore()
   const myAdvisorKey = user?.id || `advisor-${(user?.name || '').toLowerCase()}`
