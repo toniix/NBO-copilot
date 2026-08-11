@@ -12,4 +12,5 @@ venv/
 app/data/clientes.csv
 app/ml/catalog_index/
 .agents/*
-.venv*
+frontend/*
+ModelosML/*

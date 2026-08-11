@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.ml.model_loader import load_models
 from app.ml.catalog_retriever import load_catalog
+from app.ml.feature_engineering import load_customers
+from app.agents.graph import get_nbo_graph
 from app.api.v1.recommendation import router as recommendation_router
 from app.api.v1.outcome import router as outcome_router
 from app.api.v1.supervisor import router as supervisor_router
@@ -51,6 +53,16 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ {e}")
         logger.error("Ejecuta: python scripts/build_catalog_index.py")
         raise  # Falla el arranque si no hay índice de catálogo
+
+    try:
+        load_customers()
+        logger.info("✅ Dataset de clientes cargado en memoria.")
+    except FileNotFoundError as e:
+        logger.error(f"❌ {e}")
+        raise
+
+    get_nbo_graph()
+    logger.info("✅ Grafo LangGraph NBO compilado correctamente.")
 
     yield  # El servidor está activo aquí
 

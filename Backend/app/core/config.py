@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"  # Override para proxy compatible
+    LLM_TIMEOUT_SECONDS: float = 30.0  # Timeout por llamada al LLM (evita cuelgues de 60s+)
+    LLM_MAX_RETRIES: int = 1
     DEBUG: bool = True
 
     DATA_PATH: str = "app/data/clientes.csv"

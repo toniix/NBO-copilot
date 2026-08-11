@@ -8,13 +8,14 @@ Orquesta la ejecución del grafo LangGraph y devuelve el resultado al Frontend.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.agents.graph import nbo_graph
+from app.agents.graph import get_nbo_graph
 from app.ml.outcome_store import record_outcome
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ class RecommendationResponse(BaseModel):
     sales_pitch: str
     pitch_type: str
     churn_alert: bool   # True si churn_risk > 0.60
+    node_timings: dict = {}  # ms por nodo del grafo (diagnóstico de rendimiento)
 
 
 # ---------------------------------------------------------------------------
@@ -119,11 +121,16 @@ async def get_recommendation(payload: RecommendationRequest):
     }
 
     # Ejecutar el grafo de forma asíncrona
+    t0 = time.perf_counter()
     try:
-        result = await nbo_graph.ainvoke(initial_state)
+        result = await get_nbo_graph().ainvoke(initial_state)
     except Exception as exc:
         logger.error(f"[API] Error ejecutando el grafo: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error interno del agente: {exc}")
+    total_ms = (time.perf_counter() - t0) * 1000
+    node_timings = dict(result.get("node_timings", {}) or {})
+    node_timings["__total__"] = round(total_ms, 2)
+    logger.info(f"[API] Grafo completo en {total_ms:.1f} ms -> node_timings={node_timings}")
 
     # Propagar errores de negocio
     if result.get("error"):
@@ -221,4 +228,5 @@ async def get_recommendation(payload: RecommendationRequest):
         rebate_prepared=result.get("rebate_prepared", []) or [],
         churn_label=result.get("churn_label", "") or "",
         churn_alert=churn_risk > 0.60,
+        node_timings=node_timings,
     )

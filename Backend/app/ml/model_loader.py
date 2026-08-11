@@ -165,27 +165,53 @@ def derive_mt_propensity(profile: dict) -> float:
         X = _build_feature_vector(profile)
         return round(float(_mt_model.predict_proba(X)[0][1]), 4)
 
-    from app.ml.catalog_retriever import get_catalog_df
-    catalog = get_catalog_df()
-    mt_offers = catalog[catalog["es_movistar_total"].astype(str).str.lower() == "true"]
-    if mt_offers.empty:
+    from app.ml.catalog_retriever import get_mt_offers_cached
+    offers = get_mt_offers_cached()
+    if not offers:
         return 0.0
-
-    offers = [
-        {
-            "tipo_oferta": str(row["tipo_oferta"]),
-            "segmento_objetivo": str(row["segmento_objetivo"]),
-            "precio_mensual": _as_float(row["precio_mensual"]),
-            "ahorro_pct": _as_float(row["ahorro_pct"]),
-            "gb_incluidos": _as_float(row["gb_incluidos"]),
-        }
-        for _, row in mt_offers.iterrows()
-    ]
 
     probs = _score_propension_rows(profile, offers)
     if not probs:
         return 0.0
     return round(float(np.mean(probs)), 4)
+
+
+def score_customer_full(profile: dict) -> dict:
+    """
+    Genera scores + etiqueta de churn en UNA SOLA pasada del modelo de segmentación.
+
+    Returns:
+        {
+            "churn_risk": float (0-1),
+            "mt_propensity": float (0-1),
+            "churn_label": str,
+        }
+    """
+    if _churn_model is None:
+        raise RuntimeError(
+            "El modelo de churn no ha sido cargado. Verifica el lifespan de FastAPI."
+        )
+
+    if isinstance(_churn_model, dict) and "kmeans" in _churn_model:
+        bundle = _churn_model
+        X = _churn_features_vector(profile)
+        X_scaled = bundle["scaler"].transform(X)
+        cluster_id = int(bundle["kmeans"].predict(X_scaled)[0])
+        etiqueta = bundle.get("mapa_cluster_a_etiqueta", {}).get(cluster_id, "riesgo_medio_bajo")
+        churn_risk = CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
+        churn_label = etiqueta
+    else:
+        X = _build_feature_vector(profile)
+        churn_risk = float(_churn_model.predict_proba(X)[0][1])
+        churn_label = ""
+
+    mt_proba = derive_mt_propensity(profile)
+
+    return {
+        "churn_risk": round(churn_risk, 4),
+        "mt_propensity": round(mt_proba, 4),
+        "churn_label": churn_label,
+    }
 
 
 def score_customer(profile: dict) -> dict:
@@ -198,17 +224,10 @@ def score_customer(profile: dict) -> dict:
             "mt_propensity": float (0-1),
         }
     """
-    if _churn_model is None:
-        raise RuntimeError(
-            "El modelo de churn no ha sido cargado. Verifica el lifespan de FastAPI."
-        )
-
-    churn_proba = _score_churn_segmentation(profile)
-    mt_proba = derive_mt_propensity(profile)
-
+    res = score_customer_full(profile)
     return {
-        "churn_risk": round(churn_proba, 4),
-        "mt_propensity": round(mt_proba, 4),
+        "churn_risk": res["churn_risk"],
+        "mt_propensity": res["mt_propensity"],
     }
 
 

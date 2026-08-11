@@ -20,6 +20,7 @@ from chromadb.utils import embedding_functions
 
 from app.core.config import settings
 from app.ml.feature_engineering import CHURN_HIGH_THRESHOLD
+from app.agents.utils import is_mt_offer
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,12 @@ COLLECTION_NAME = "catalogo_ofertas"
 # ---------------------------------------------------------------------------
 _collection: Any = None
 _catalog_df: pd.DataFrame | None = None
+_mt_offers_cache: list[dict] = []
 
 
 def load_catalog() -> None:
     """Carga el índice Chroma y el catálogo crudo. Llamar desde el lifespan."""
-    global _collection, _catalog_df
+    global _collection, _catalog_df, _mt_offers_cache
 
     index_dir = settings.catalog_index_full
     if not (index_dir / "chroma.sqlite3").exists():
@@ -55,7 +57,24 @@ def load_catalog() -> None:
     else:
         _catalog_df = pd.read_csv(settings.catalog_path_full).fillna("")
 
+    mt_rows = _catalog_df[_catalog_df["es_movistar_total"].astype(str).str.lower() == "true"]
+    _mt_offers_cache = [
+        {
+            "tipo_oferta": str(row["tipo_oferta"]),
+            "segmento_objetivo": str(row["segmento_objetivo"]),
+            "precio_mensual": _as_float(row["precio_mensual"]),
+            "ahorro_pct": _as_float(row["ahorro_pct"]),
+            "gb_incluidos": _as_float(row["gb_incluidos"]),
+        }
+        for _, row in mt_rows.iterrows()
+    ]
+
     logger.info(f"✅ Catálogo cargado: {_collection.count()} ofertas indexadas.")
+
+
+def get_mt_offers_cached() -> list[dict]:
+    """Devuelve las ofertas MT precacheadas."""
+    return _mt_offers_cache
 
 
 def _is_catalog_loaded() -> bool:
@@ -116,7 +135,7 @@ def retrieve_offers(
     # Ordenar por relevancia combinada: MT boost primero (mirror de regla de negocio)
     offers.sort(
         key=lambda o: (
-            1.0 if _is_mt(o) and _prefer_mt(profile, scores) else 0.0,
+            1.0 if is_mt_offer(o) and _prefer_mt(profile, scores) else 0.0,
             o.get("score", 0.0),
         ),
         reverse=True,
@@ -202,10 +221,6 @@ def _as_float(value) -> float | None:
         return v
     except (TypeError, ValueError):
         return None
-
-
-def _is_mt(offer: dict) -> bool:
-    return str(offer.get("es_movistar_total", "False")).lower() == "true"
 
 
 def _boost_relevant_offers(

@@ -18,4 +18,6 @@ class AgentState(TypedDict):
     churn_label: str       # Etiqueta de segmentación de riesgo (FASE 8)
     sales_pitch: str         # Guion generado por el LLM
     pitch_type: str          # "fidelizacion" | "upselling"
+    price_delta: dict         # {"diferencia_precio", "precio_actual", "precio_oferta", "gb_extra"}
+    node_timings: dict       # Tiempo de ejecución por nodo (ms) para diagnóstico
     error: Optional[str]

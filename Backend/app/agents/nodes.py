@@ -14,11 +14,11 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.state import AgentState
+from app.agents.utils import is_mt_offer
 from app.ml.feature_engineering import get_customer_profile, CHURN_HIGH_THRESHOLD
 from app.ml.model_loader import (
-    score_customer,
+    score_customer_full,
     score_offers_acceptance,
-    get_churn_label,
     build_rebate_prepared,
 )
 from app.ml.channel_recommender import recomendar_canal
@@ -31,10 +31,12 @@ logger = logging.getLogger(__name__)
 # LLM (inicializado una vez al importar el módulo)
 # ---------------------------------------------------------------------------
 _llm = ChatOpenAI(
-    model="grok-4.5-free",
+    model="gpt-5.4-mini",
     temperature=0.7,
     api_key=settings.OPENAI_API_KEY,
     base_url=settings.OPENAI_BASE_URL,
+    timeout=settings.LLM_TIMEOUT_SECONDS,
+    max_retries=settings.LLM_MAX_RETRIES,
 )
 
 # ---------------------------------------------------------------------------
@@ -81,11 +83,12 @@ def ml_scoring_node(state: AgentState) -> dict:
     logger.info(f"[ml_scoring_node] Calculando scores para: {profile.get('cliente_id')}")
 
     try:
-        scores = score_customer(profile)
+        res = score_customer_full(profile)
     except Exception as exc:
         logger.error(f"[ml_scoring_node] Error en scoring: {exc}")
         return {"error": f"Error en modelo ML: {exc}", "ml_scores": {}}
 
+    scores = {"churn_risk": res["churn_risk"], "mt_propensity": res["mt_propensity"]}
     churn_risk = scores["churn_risk"]
     pitch_type = "fidelizacion" if churn_risk > CHURN_HIGH_THRESHOLD else "upselling"
 
@@ -98,7 +101,7 @@ def ml_scoring_node(state: AgentState) -> dict:
     return {
         "ml_scores": scores,
         "pitch_type": pitch_type,
-        "churn_label": get_churn_label(profile),
+        "churn_label": res["churn_label"],
     }
 
 
@@ -113,9 +116,6 @@ def catalog_retrieval_node(state: AgentState) -> dict:
     reglas de negocio sobre los scores ML. Además recomienda el canal y el
     momento óptimo para presentar la oferta.
     """
-    if state.get("error"):
-        return {}
-
     profile = state["customer_profile"]
     scores = state["ml_scores"]
     logger.info(f"[catalog_retrieval_node] Recuperando ofertas para: {profile.get('cliente_id')}")
@@ -139,6 +139,7 @@ def catalog_retrieval_node(state: AgentState) -> dict:
 
     selected, justification = _select_best_offer(offers, profile, scores)
     channel_recommendation = _build_channel_recommendation(profile, scores)
+    price_delta = _plan_actual_delta(profile, selected)
 
     logger.info(f"[catalog_retrieval_node] NBO seleccionado: {selected.get('oferta_id')} ({selected.get('nombre_oferta')})")
 
@@ -149,6 +150,7 @@ def catalog_retrieval_node(state: AgentState) -> dict:
         "justification": justification,
         "channel_recommendation": channel_recommendation,
         "rebate_prepared": build_rebate_prepared(profile),
+        "price_delta": price_delta,
     }
 
 
@@ -204,10 +206,6 @@ def _build_channel_recommendation(profile: dict, scores: dict) -> dict:
     }
 
 
-def _is_mt(offer: dict) -> bool:
-    return str(offer.get("es_movistar_total", "False")).lower() == "true"
-
-
 def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple[dict, str]:
     """
     Selecciona la oferta final entre las recuperadas por RAG usando reglas de
@@ -228,11 +226,11 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
         elegible_mt and mt_prop > 0.50 and not es_mt
     )
 
-    ranked = sorted(offers, key=lambda o: (1.0 if _is_mt(o) else 0.0) if prefer_mt else 0.0,
+    ranked = sorted(offers, key=lambda o: (1.0 if is_mt_offer(o) else 0.0) if prefer_mt else 0.0,
                     reverse=True)
 
     if prefer_mt:
-        candidates = [o for o in ranked if _is_mt(o)]
+        candidates = [o for o in ranked if is_mt_offer(o)]
         if not candidates:
             candidates = ranked
     else:
@@ -247,7 +245,7 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
         reasons.append("riesgo de cancelación alto, la oferta busca retención")
     if elegible_mt and mt_prop > 0.50:
         reasons.append("alta propensión a convergencia Movistar Total")
-    if _is_mt(selected):
+    if is_mt_offer(selected):
         reasons.append("producto convergente con mayor ahorro y blindaje de permanencia")
     if not tiene_hogar and selected.get("segmento_objetivo") == "hogar":
         reasons.append("cliente sin servicio hogar, oportunidad de cross-selling")
@@ -271,23 +269,18 @@ async def llm_pitch_node(state: AgentState) -> dict:
     oferta real seleccionada del catálogo (precio, ahorro, GB) y a los datos
     del plan actual del cliente.
     """
-    if state.get("error"):
-        return {}
-
     profile = state["customer_profile"]
     scores = state["ml_scores"]
     offer = state.get("offer_selected", {})
     offers = state.get("offers_retrieved", [])
     channel_rec = state.get("channel_recommendation", {})
     pitch_type = state.get("pitch_type", "upselling")
-
-    churn_risk = scores.get("churn_risk", 0)
-    mt_propensity = scores.get("mt_propensity", 0)
+    price_delta = state.get("price_delta", {})
 
     logger.info(f"[llm_pitch_node] Generando pitch tipo '{pitch_type}' para oferta: {offer.get('oferta_id')}")
 
     system_prompt = _build_system_prompt(pitch_type)
-    user_prompt = _build_user_prompt(profile, scores, offer, offers, channel_rec, pitch_type)
+    user_prompt = _build_user_prompt(profile, scores, offer, offers, channel_rec, pitch_type, price_delta)
 
     try:
         response = await _llm.ainvoke(
@@ -366,6 +359,7 @@ def _build_user_prompt(
     offers: list[dict],
     channel_rec: dict,
     pitch_type: str,
+    price_delta: dict | None = None,
 ) -> str:
     churn_pct = round(scores.get("churn_risk", 0) * 100)
     mt_pct = round(scores.get("mt_propensity", 0) * 100)
@@ -399,7 +393,7 @@ def _build_user_prompt(
     if offer.get("descripcion_corta"):
         oferta_desc += f"- Detalle: {offer['descripcion_corta']}\n"
 
-    delta = _plan_actual_delta(profile, offer)
+    delta = price_delta if price_delta is not None else _plan_actual_delta(profile, offer)
     delta_str = ""
     if delta.get("diferencia_precio") is not None:
         d = delta["diferencia_precio"]

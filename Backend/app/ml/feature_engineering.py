@@ -7,10 +7,16 @@ Utiliza DuckDB para queries rápidas sobre el CSV sin cargarlo completo en memor
 
 from __future__ import annotations
 
+import logging
 import duckdb
 import pandas as pd
 from pathlib import Path
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Singleton para el dataset de clientes precargado en memoria
+_customers_df: pd.DataFrame | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -103,31 +109,35 @@ def _costo_ahorro_mt(consumo_gb: float, es_mt: bool, elegible_mt: bool) -> tuple
     return round(costo_separado - precio_mt, 4), 1
 
 
+def load_customers() -> None:
+    """Carga el dataset CSV en memoria. Llamar desde lifespan."""
+    global _customers_df
+    csv_path = settings.data_path_full
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Dataset de clientes no encontrado en: {csv_path}")
+    
+    conn = duckdb.connect()
+    _customers_df = conn.execute(
+        f"SELECT * FROM read_csv_auto('{str(csv_path)}', header=True, nullstr='')"
+    ).fetchdf()
+    conn.close()
+    logger.info(f"✅ Dataset de clientes cargado en memoria: {len(_customers_df)} registros.")
+
+
 def get_customer_profile(cliente_id: str) -> dict | None:
     """
-    Busca al cliente en el CSV y devuelve su perfil con features derivadas.
+    Busca al cliente en el dataset precargado y devuelve su perfil con features derivadas.
     Retorna None si no existe.
     """
-    csv_path = str(settings.data_path_full)
+    global _customers_df
+    if _customers_df is None:
+        load_customers()
 
-    query = f"""
-    SELECT *
-    FROM read_csv_auto('{csv_path}', header=True, nullstr='')
-    WHERE cliente_id = '{cliente_id}'
-    LIMIT 1
-    """
-
-    try:
-        conn = duckdb.connect()
-        result = conn.execute(query).fetchdf()
-        conn.close()
-    except Exception as e:
-        raise RuntimeError(f"Error consultando el dataset: {e}") from e
-
-    if result.empty:
+    df_cliente = _customers_df[_customers_df["cliente_id"] == cliente_id]
+    if df_cliente.empty:
         return None
 
-    row = result.iloc[0].to_dict()
+    row = df_cliente.iloc[0].to_dict()
 
     # --- Variables derivadas (Feature Engineering) ---
     antiguedad_meses = float(row.get("antiguedad_meses", 0) or 0)
