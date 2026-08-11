@@ -138,6 +138,7 @@ const useDashboardStore = create((set, get) => ({
   openOfferTab: () => set({ isOfferTabOpen: true, selectedOfferId: 'principal', offerOutcome: null }),
   closeOfferTab: () => set({ isOfferTabOpen: false, offerOutcome: null }),
   selectOffer: (selectedOfferId) => set({ selectedOfferId }),
+  clearResults: () => set({ clientData: null, searchQuery: '', error: null, isLoading: false, showInlineForm: false, isOfferTabOpen: false, offerOutcome: null, selectedOfferId: 'principal' }),
 
   registrarVenta: (advisorRef) => {
     const advisorId = typeof advisorRef === 'string' ? advisorRef : (advisorRef?.id || advisorRef?.advisorId || 'unknown')

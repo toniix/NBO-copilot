@@ -9,11 +9,19 @@ import useDashboardStore from '../../store/useDashboardStore.js'
 import { useAuthStore } from '../../store/useAuthStore'
 
 const Dashboard = () => {
-  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, registerOfferOutcome } = useDashboardStore()
+  const { searchQuery, isLoading, clientData, error, isSimulatorModalOpen, showInlineForm, isOfferTabOpen, selectedOfferId, offerOutcome, setSearchQuery, searchClient, closeSimulator, simulateManualOffer, openOfferTab, closeOfferTab, selectOffer, clearResults, registrarVenta } = useDashboardStore()
   const { user } = useAuthStore()
   const { salesMetrics, salesByAdvisor } = useDashboardStore()
   const myAdvisorKey = user?.id || `advisor-${(user?.name || '').toLowerCase()}`
   const mySales = (salesByAdvisor && salesByAdvisor[myAdvisorKey] && salesByAdvisor[myAdvisorKey].accepted) || 0
+  const handleAccept = (selectedOffer) => {
+    if (user) registrarVenta(user)
+    clearResults()
+  }
+  const handleReject = () => {
+    clearResults()
+  }
+
   if (user?.role === 'supervisor') {
     return <SupervisorDashboard />
   }
@@ -51,7 +59,7 @@ const Dashboard = () => {
           </div>
         </section>
 
-        <ResultsBoard isLoading={isLoading} clientData={clientData} error={error} onOffer={openOfferTab} />
+        <ResultsBoard isLoading={isLoading} clientData={clientData} error={error} onAccept={handleAccept} onReject={handleReject} salesToday={mySales} dailyTarget={salesMetrics?.dailyTarget || 15} />
       </div>
       {isSimulatorModalOpen && <ManualSimulatorModal isLoading={isLoading} onClose={closeSimulator} onSubmit={simulateManualOffer} />}
       {showInlineForm && <InlinePredictForm />}
