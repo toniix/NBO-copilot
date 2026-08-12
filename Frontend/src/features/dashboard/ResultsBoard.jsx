@@ -21,7 +21,7 @@ const SkeletonCard = () => (
   </section>
 )
 
-const ResultsBoard = ({ isLoading, clientData, error, onAccept, onReject, salesToday, dailyTarget }) => {
+const ResultsBoard = ({ isLoading, clientData, error, onAccept, onReject }) => {
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3" aria-label="Procesando análisis" aria-busy="true">
@@ -53,28 +53,20 @@ const ResultsBoard = ({ isLoading, clientData, error, onAccept, onReject, salesT
 
   return (
     <div className="space-y-5">
-      <section className="grid grid-cols-2 gap-4 md:max-w-xl" aria-label="Ventas del día">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs text-slate-500">Ventas de hoy</p>
-          <p className="mt-1 text-3xl font-semibold text-[#313235]">{salesToday}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs text-slate-500">Meta diaria</p>
-          <p className="mt-1 text-3xl font-semibold text-[#313235]">{dailyTarget}</p>
-        </div>
-      </section>
-
       <ClienteSnapshot clientData={clientData} />
 
       <SignalsRow clientData={clientData} />
 
-      <PropuestaComercial clientData={clientData} onAccept={onAccept} onReject={onReject} />
-
+      {/* Primary Sales Command Center: Guion (Pitch) + Ofertas Sugeridas Side-by-Side */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <GuionPanel clientData={clientData} />
-        <CanalPanel clientData={clientData} />
+        <PropuestaComercial clientData={clientData} onAccept={onAccept} onReject={onReject} />
       </div>
 
+      {/* Canal Panel (Cómo contactar y cerrar): Full Width */}
+      <CanalPanel clientData={clientData} />
+
+      {/* Diagnóstico Panel */}
       <DiagnosticoPanel clientData={clientData} />
     </div>
   )

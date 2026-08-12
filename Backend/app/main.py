@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.ml.production_contract import load_contract
 from app.ml.model_loader import load_models
 from app.ml.catalog_retriever import load_catalog
 from app.ml.feature_engineering import load_customers
@@ -38,6 +39,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Iniciando servidor Movistar NBO Advisor Copilot...")
+    try:
+        load_contract()
+        logger.info("✅ Contrato de producción (constantes/categorías) cargado.")
+    except FileNotFoundError as e:
+        logger.error(f"❌ {e}")
+        raise
+
     try:
         load_models()
         logger.info("✅ Modelos ML cargados correctamente.")

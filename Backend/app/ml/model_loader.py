@@ -202,16 +202,31 @@ def _resolve_canal(profile: dict, canal: str = "") -> str:
     return recomendar_canal(profile).get("canal_recomendado", "Digital")
 
 
+# Bins de antigüedad del esquema FASE 4 actualizada — deben coincidir EXACTO
+# con la FASE 7 (11_fase7_actualizada.py) y la FASE 8 (12_fase8_actualizada.py).
+ANTIGUEDAD_BINS = list(range(0, 186, 6))
+
+
+def _antiguedad_intervalo(antiguedad_meses: float) -> str:
+    """antiguedad_intervalo (categórico) = pd.cut de antiguedad_meses en bins de 6 meses."""
+    return pd.cut([float(antiguedad_meses)], bins=ANTIGUEDAD_BINS, right=True).astype(str)[0]
+
+
 def _build_propension_row_values(profile: dict, offer: dict, canal: str = "") -> dict:
     """
-    Construye los 27 features cliente+oferta (FASE 7) para el pipeline.
-    El orden de las claves del dict define el orden de las columnas del DataFrame.
+    Construye los 27 features cliente+oferta (FASE 7 actualizada) para el pipeline.
+    ESQUEMA NUEVO: n_reclamos_bin (binario) y antiguedad_intervalo (categórica)
+    reemplazan las versiones numéricas crudas (antiguedad_meses, n_reclamos) que
+    el modelo de FASE 7 ya no reconoce. El orden de las claves del dict define
+    el orden de las columnas del DataFrame.
     """
     cliente = {
-        "antiguedad_meses": float(profile.get("antiguedad_meses", 0) or 0),
+        "antiguedad_intervalo": _antiguedad_intervalo(
+            float(profile.get("antiguedad_meses", 0) or 0)
+        ),
         "monto_facturado_prom": float(profile.get("monto_facturado_prom", 0) or 0),
         "riesgo_mora_score": float(profile.get("riesgo_mora_score", 0) or 0),
-        "n_reclamos": float(profile.get("n_reclamos", 0) or 0),
+        "n_reclamos_bin": bool(int(profile.get("n_reclamos", 0) or 0) > 0),
         "n_actividad_canal": float(profile.get("n_actividad_canal", 0) or 0),
         "uso_app_movistar_prom": float(profile.get("uso_app_movistar_prom", 0) or 0),
         "diferencia_gasto": float(profile.get("diferencia_gasto", 0) or 0),

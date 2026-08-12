@@ -19,9 +19,14 @@ Reglas (extraídas del notebook FASE 5):
 
 from __future__ import annotations
 
+from app.ml.production_contract import get_riesgo_mora_cortes
+
 # --- Reglas de FASE 5 (constantes_produccion.json de FASE 8) ---
-MORA_TERCIL_MEDIO = 33.33333333333333   # riesgo_mora_score <= 33.33 -> mora_bajo
-MORA_TERCIL_ALTO = 42.5                 # 33.33 < riesgo_mora_score <= 42.5 -> mora_medio
+# Fuente única de verdad: si Estadística actualiza los terciles, el backend
+# los toma de constantes_produccion.json sin tocar este código.
+_RIESGO_MORA_CORTES = get_riesgo_mora_cortes()
+MORA_TERCIL_MEDIO = _RIESGO_MORA_CORTES["corte_33"]  # riesgo_mora_score <= 33.33 -> mora_bajo
+MORA_TERCIL_ALTO = _RIESGO_MORA_CORTES["corte_66"]   # 33.33 < riesgo_mora_score <= 42.5 -> mora_medio
 
 # Mapeo de etiqueta churn (segmentación KMeans FASE 8) a score 0-1.
 # El contrato del sistema espera churn_risk float con umbral 0.60 (CHURN_HIGH_THRESHOLD).

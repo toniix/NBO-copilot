@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     PROPENSION_MODEL_PATH: str = "app/ml/models/modelo_propension.pkl"
     REBATE_CATALOG_PATH: str = "app/ml/models/catalogo_rebate.json"
 
+    # Contrato de producción exportado por el equipo de Estadística (FASE 8)
+    CONSTANTES_PATH: str = "app/ml/models/constantes_produccion.json"
+    CATEGORIAS_PATH: str = "app/ml/models/categorias_produccion.json"
+
     # Catálogo de ofertas (RAG)
     CATALOG_PATH: str = "../catalogo_ofertas_entrega.csv"
     CATALOG_INDEX_PATH: str = "app/ml/catalog_index"
@@ -46,6 +50,14 @@ class Settings(BaseSettings):
     @property
     def rebate_catalog_path_full(self) -> Path:
         return BASE_DIR / self.REBATE_CATALOG_PATH
+
+    @property
+    def constantes_path_full(self) -> Path:
+        return BASE_DIR / self.CONSTANTES_PATH
+
+    @property
+    def categorias_path_full(self) -> Path:
+        return BASE_DIR / self.CATEGORIAS_PATH
 
     @property
     def catalog_path_full(self) -> Path:

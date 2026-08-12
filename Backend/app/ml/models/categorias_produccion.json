@@ -1,0 +1,52 @@
+{
+  "canal": [
+    "Call In",
+    "Call Out",
+    "Digital",
+    "Tienda"
+  ],
+  "tipo_cliente": [
+    "postpago",
+    "prepago",
+    "sin_linea_movil"
+  ],
+  "edad_rango": [
+    "18-25",
+    "26-35",
+    "36-45",
+    "46-55",
+    "56-65",
+    "65+"
+  ],
+  "ubicacion_departamento": [
+    "Arequipa",
+    "Cusco",
+    "Ica",
+    "Junin",
+    "La Libertad",
+    "Lambayeque",
+    "Lima",
+    "Otro",
+    "Piura"
+  ],
+  "canal_mas_usado": [
+    "Call In",
+    "Call Out",
+    "Digital",
+    "Tienda",
+    "sin_interaccion"
+  ],
+  "oferta_tipo": [
+    "equipo",
+    "movistar_total",
+    "paquete_adicional",
+    "plan_hogar",
+    "plan_movil",
+    "upgrade"
+  ],
+  "segmento_objetivo": [
+    "ambos",
+    "hogar",
+    "movil"
+  ]
+}
