@@ -22,10 +22,22 @@ from app.ml.model_loader import (
     build_rebate_prepared,
 )
 from app.ml.channel_recommender import recomendar_canal
-from app.ml.catalog_retriever import retrieve_offers, get_catalog_df
+from app.ml.catalog_retriever import retrieve_offers, get_catalog_df, prefer_mt
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuración del decisor (FASE 7)
+# ---------------------------------------------------------------------------
+# El ranking del NBO es ML-primary: la predicción p_acceptance (modelo FASE 7)
+# decide el orden; el score semántico del RAG solo DESEMPATA entre ofertas con
+# probabilidad casi idéntica (banda de 1 p.p. al redondear a 2 decimales).
+# El RAG actúa como memoria que acota el catálogo, no como criterio principal.
+# A clientes en plan de entrada (base) se les prioriza el paso natural de
+# mejora (ofertas "upgrade") en lugar de saltos a planes premium.
+PLAN_BASE_TIER = "OF001"
+STEP_UP_BOOST = 0.05
 
 # ---------------------------------------------------------------------------
 # LLM (inicializado una vez al importar el módulo)
@@ -141,6 +153,9 @@ def catalog_retrieval_node(state: AgentState) -> dict:
     channel_recommendation = _build_channel_recommendation(profile, scores)
     price_delta = _plan_actual_delta(profile, selected)
 
+    # La oferta ganadora lidera la lista devuelta (el resto queda como alternativas)
+    offers = [selected] + [o for o in offers if o["oferta_id"] != selected["oferta_id"]]
+
     logger.info(f"[catalog_retrieval_node] NBO seleccionado: {selected.get('oferta_id')} ({selected.get('nombre_oferta')})")
 
     return {
@@ -206,10 +221,30 @@ def _build_channel_recommendation(profile: dict, scores: dict) -> dict:
     }
 
 
+def _final_offer_score(offer: dict, profile: dict, scores: dict) -> float:
+    """
+    Score decisor del NBO (ML-primary): la p_acceptance del modelo FASE 7
+    ordena las ofertas; se redondea a 2 decimales (banda de ~1 p.p.) para que
+    el RAG solo desempate entre probabilidades casi idénticas. Para clientes
+    en plan de entrada se refuerza el paso natural de mejora ("upgrade").
+    """
+    ml = float(offer.get("p_acceptance", 0) or 0)
+    if (
+        str(profile.get("plan_actual_id", "") or "") == PLAN_BASE_TIER
+        and str(offer.get("tipo_oferta", "") or "") == "upgrade"
+    ):
+        ml += STEP_UP_BOOST
+    return round(ml, 2)
+
+
 def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple[dict, str]:
     """
-    Selecciona la oferta final entre las recuperadas por RAG usando reglas de
-    negocio que combinan scores ML + relevancia semántica (score del índice).
+    Selecciona la oferta final entre las candidatas recuperadas por RAG usando
+    reglas de negocio + scoring híbrido (ML p_acceptance + relevancia semántica).
+
+    - Si el cliente prefiere Movistar Total (prefer_mt), esas ofertas van al
+      frente y se rankean entre sí por el score híbrido.
+    - El resto se ordena por el score híbrido.
 
     Returns:
         (offer_selected, justification)
@@ -221,28 +256,20 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
     tiene_movil = profile.get("tiene_movil", False)
     tiene_hogar = profile.get("tiene_hogar", False)
 
-    # Consistente con _prefer_mt() en catalog_retriever:
-    # elegible_mt es condición necesaria, y la propensidad debe superar 0.65
-    prefer_mt = not es_mt and elegible_mt and mt_prop > 0.65
+    # Misma señal que _prefer_mt() en catalog_retriever (FASE 7)
+    prefer = prefer_mt(profile, scores)
 
     ranked = sorted(
         offers,
         key=lambda o: (
-            1.0 if is_mt_offer(o) and prefer_mt else
-            -0.3 if is_mt_offer(o) and not prefer_mt else
-            o.get("score", 0.0)
+            1.0 if is_mt_offer(o) and prefer else 0.0,
+            _final_offer_score(o, profile, scores),
+            float(o.get("score", 0) or 0),  # desempate: relevancia semántica
         ),
         reverse=True,
     )
 
-    if prefer_mt:
-        candidates = [o for o in ranked if is_mt_offer(o)]
-        if not candidates:
-            candidates = ranked
-    else:
-        candidates = ranked
-
-    selected = candidates[0]
+    selected = ranked[0]
     reasons = []
 
     if es_mt:
@@ -253,6 +280,10 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
         reasons.append("alta propensión a convergencia Movistar Total")
     if is_mt_offer(selected):
         reasons.append("producto convergente con mayor ahorro y blindaje de permanencia")
+    if selected.get("tipo_oferta") == "upgrade":
+        reasons.append("es el paso natural de mejora sobre su plan actual sin saltar a un plan premium")
+    if selected.get("p_acceptance") is not None:
+        reasons.append(f"mayor probabilidad de aceptación según el modelo ({(selected.get('p_acceptance') or 0) * 100:.0f}%)")
     if not tiene_hogar and selected.get("segmento_objetivo") == "hogar":
         reasons.append("cliente sin servicio hogar, oportunidad de cross-selling")
     if not tiene_movil and selected.get("segmento_objetivo") == "movil":

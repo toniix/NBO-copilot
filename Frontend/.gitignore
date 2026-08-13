@@ -6,3 +6,4 @@ dist/
 *.local
 .vscode/
 .DS_Store
+.agents/*

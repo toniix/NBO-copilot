@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "catalogo_ofertas"
 
 # ---------------------------------------------------------------------------
+# Reglas de negocio de asequibilidad (FASE 7)
+# ---------------------------------------------------------------------------
+# Una oferta se descarta si su precio supera el factor × la referencia de gasto
+# del cliente (factura promedio, o precio del plan actual como fallback). Si el
+# cliente arrastra mora, el tope se endurece para no empujar upselling premium.
+AFFORDABILITY_FACTOR = 1.5
+AFFORDABILITY_FACTOR_MOROSO = 1.25
+
+# ---------------------------------------------------------------------------
 # Singleton — índice y catálogo crudo se cargan una sola vez
 # ---------------------------------------------------------------------------
 _collection: Any = None
@@ -167,12 +176,16 @@ def _build_query(profile: dict, scores: dict) -> str:
         contexto.append("alto riesgo de cancelacion, necesita retencion con descuento o beneficio especial")
     else:
         contexto.append("cliente estable con oportunidad de crecimiento y mejora de plan")
-    if mt_prop > 0.50:
+    # MT solo si el cliente es elegible; si no, mencionarlo lo arrastra hacia
+    # ofertas convergentes premium que no puede contratar.
+    if mt_prop > 0.50 and profile.get("elegible_mt"):
         contexto.append("muy propenso a Movistar Total convergente")
+    if int(profile.get("meses_moroso", 0) or 0) > 0:
+        contexto.append("cliente con retrasos de pago, priorizar ofertas economicas y de retencion, evitar planes premium")
     if consumo > 30:
         contexto.append("alto consumo de datos")
     elif consumo > 0 and consumo <= 10:
-        contexto.append("bajo consumo de datos, plan economico")
+        contexto.append("bajo consumo de datos, plan economico, no necesita datos ilimitados")
 
     return (
         f"Cliente con {servicios_str}. "
@@ -207,6 +220,11 @@ def _prefer_mt(profile: dict, scores: dict) -> bool:
     return mt_prop > 0.65
 
 
+def prefer_mt(profile: dict, scores: dict) -> bool:
+    """Wrapper público de `_prefer_mt` para la capa de selección del NBO."""
+    return _prefer_mt(profile, scores)
+
+
 def _tiene_upgrade_mt_superior(profile: dict) -> bool:
     """Hay una oferta MT más cara que el plan actual del cliente (upgrade)."""
     actual_price = _plan_actual_price(profile)
@@ -231,6 +249,57 @@ def _plan_actual_price(profile: dict) -> float | None:
     if row.empty:
         return None
     return _as_float(row.iloc[0]["precio_mensual"])
+
+
+def _current_plan_info(profile: dict) -> dict | None:
+    """Precio, GB y tipo del plan actual del cliente (para anti-downgrade)."""
+    catalog = get_catalog_df()
+    plan_id = str(profile.get("plan_actual_id", "") or "")
+    if not plan_id:
+        return None
+    row = catalog[catalog["oferta_id"].astype(str) == plan_id]
+    if row.empty:
+        return None
+    return {
+        "precio": _as_float(row.iloc[0]["precio_mensual"]),
+        "gb": _as_float(row.iloc[0]["gb_incluidos"]),
+        "tipo": str(row.iloc[0].get("tipo_oferta", "") or ""),
+    }
+
+
+def _es_downgrade(offer: dict, current: dict) -> bool:
+    """
+    El NBO nunca debe recomendar un plan inferior al actual del cliente:
+    - plan_movil vs plan_movil: descartar si cuesta menos o trae menos GB
+      (salvo que el plan actual sea ilimitado, caso cubierto por GB).
+    - plan_hogar vs plan_hogar: descartar si cuesta menos.
+    - "upgrade" (extra de GB): sin sentido si el plan actual ya es tope/ilimitado.
+    El resto de cruces (cross-selling a otra categoría) no es downgrade.
+    """
+    tipo_oferta = str(offer.get("tipo_oferta", "") or "")
+    precio = _as_float(offer.get("precio_mensual"))
+    gb = _as_float(offer.get("gb_incluidos"))
+    tipo_actual = current.get("tipo")
+    precio_actual = current.get("precio")
+    gb_actual = current.get("gb")
+
+    if tipo_oferta == "plan_movil" and tipo_actual == "plan_movil":
+        if precio is not None and precio_actual is not None and precio < precio_actual:
+            return True
+        if (
+            gb is not None and gb_actual is not None
+            and gb_actual < 9999 and gb < gb_actual
+        ):
+            return True
+        return False
+
+    if tipo_oferta == "plan_hogar" and tipo_actual == "plan_hogar":
+        return precio is not None and precio_actual is not None and precio < precio_actual
+
+    if tipo_oferta == "upgrade" and gb_actual is not None and gb_actual >= 9999:
+        return True
+
+    return False
 
 
 def _as_float(value) -> float | None:
@@ -316,6 +385,17 @@ def _filter_by_business_rules(
     es_mt = profile.get("es_movistar_total", False)
     churn = float(scores.get("churn_risk", 0) or 0)
 
+    # Asequibilidad: precio de la oferta <= factor × referencia de gasto.
+    # Referencia = factura promedio; si falta, precio del plan actual.
+    factura = _as_float(profile.get("monto_facturado_prom"))
+    if factura is None:
+        factura = _plan_actual_price(profile)
+    moroso = int(profile.get("meses_moroso", 0) or 0) > 0
+    factor = AFFORDABILITY_FACTOR_MOROSO if moroso else AFFORDABILITY_FACTOR
+    cap = factura * factor if factura is not None else None
+
+    current = _current_plan_info(profile)
+
     filtered: list[dict] = []
     for offer in offers:
         segmento = str(offer.get("segmento_objetivo", "ambos"))
@@ -325,6 +405,12 @@ def _filter_by_business_rules(
             continue
         es_mt_offer = str(offer.get("es_movistar_total", "False")).lower() == "true"
         if es_mt and es_mt_offer and churn <= 0.60:
+            continue
+        if cap is not None:
+            precio = _as_float(offer.get("precio_mensual"))
+            if precio is not None and precio > cap:
+                continue
+        if current is not None and _es_downgrade(offer, current):
             continue
         filtered.append(offer)
 

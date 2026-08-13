@@ -12,6 +12,7 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 from app.core.config import settings
+from app.ml.production_contract import get_outliers_pctl995, get_oferta_hogar_base_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,19 @@ PLAN_DESCRIPTIONS: dict[str, str] = {
 
 CHURN_HIGH_THRESHOLD = 0.60  # Por encima → lógica de fidelización
 
-# Umbrales de outlier (percentil 99.5 del training set — datos idénticos a clientes.csv)
-MONTO_OUTLIER_THRESHOLD = 245.6
-CONSUMO_OUTLIER_THRESHOLD = 74.6
+# Umbrales de outlier: fuente única de verdad = constantes_produccion.json
+# (percentil 99.5 del training set — datos idénticos a clientes.csv)
+_OUTLIERS = get_outliers_pctl995()
+MONTO_OUTLIER_THRESHOLD: float = _OUTLIERS["monto_facturado_prom"]
+CONSUMO_OUTLIER_THRESHOLD: float = _OUTLIERS["consumo_datos_gb_prom"]
 
 # Categoría para clientes sin línea móvil (imputación del notebook FASE 1)
 TIPO_CLIENTE_SIN_LINEA = "sin_linea_movil"
 CANAL_SIN_INTERACCION = "sin_interaccion"
 
-# Precio de referencia del plan hogar base para ahorro_potencial_mt (OF005)
-HOGAR_BASE_OFFER_ID = "OF005"
+# Precio de referencia del plan hogar base para ahorro_potencial_mt
+# (contrato de producción: oferta_hogar_base_id en constantes_produccion.json)
+HOGAR_BASE_OFFER_ID = get_oferta_hogar_base_id()
 
 
 def _precio_equivalente(planes: list[dict], consumo_gb: float) -> float:

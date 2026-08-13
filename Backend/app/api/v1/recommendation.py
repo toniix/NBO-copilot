@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.graph import get_nbo_graph
 from app.ml.outcome_store import record_outcome
+from app.ml.production_contract import get_umbral_decision
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,8 @@ class RecommendationResponse(BaseModel):
     pitch_type: str
     churn_alert: bool   # True si churn_risk > 0.60
     node_timings: dict = {}  # ms por nodo del grafo (diagnóstico de rendimiento)
+    decision_threshold: float  # Umbral p_acceptance del equipo de Estadística (constantes_produccion.json)
+    acepta_predicho: bool | None  # p_acceptance de la oferta seleccionada >= decision_threshold (None si sin modelo)
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +155,14 @@ async def get_recommendation(payload: RecommendationRequest):
     offer_selected = result.get("offer_selected", {}) or {}
     offers_retrieved = result.get("offers_retrieved", []) or []
     channel_rec = result.get("channel_recommendation", {}) or {}
+
+    # Umbral de decisión del equipo de Estadística (FASE 7). Metadata: no
+    # modifica la selección del NBO, solo se expone para el dashboard.
+    decision_threshold = get_umbral_decision()
+    p_acceptance = offer_selected.get("p_acceptance")
+    acepta_predicho = (
+        bool(p_acceptance >= decision_threshold) if p_acceptance is not None else None
+    )
 
     # Trazabilidad: genera un id de gestión y registra el ofrecimiento
     gestion_id = uuid.uuid4().hex
@@ -229,4 +240,6 @@ async def get_recommendation(payload: RecommendationRequest):
         churn_label=result.get("churn_label", "") or "",
         churn_alert=churn_risk > 0.60,
         node_timings=node_timings,
+        decision_threshold=decision_threshold,
+        acepta_predicho=acepta_predicho,
     )
