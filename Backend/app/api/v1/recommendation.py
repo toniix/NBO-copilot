@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.agents.graph import get_nbo_graph
 from app.ml.outcome_store import record_outcome
 from app.ml.production_contract import get_umbral_decision
+from app.ml.feature_engineering import necesita_estrategia_retencion
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,8 @@ class ChannelRecommendation(BaseModel):
     timing: str
     advice: str
     canal_actual: str
+    confianza: str = "media"
+
 
 
 class RebatePrepared(BaseModel):
@@ -213,6 +216,7 @@ async def get_recommendation(payload: RecommendationRequest):
             timing=channel_rec.get("timing", ""),
             advice=channel_rec.get("advice", ""),
             canal_actual=channel_rec.get("canal_actual", ""),
+            confianza=channel_rec.get("confianza", "media"),
         ),
         offers_retrieved=[
             OfferSelected(
@@ -238,7 +242,7 @@ async def get_recommendation(payload: RecommendationRequest):
         pitch_type=result.get("pitch_type", ""),
         rebate_prepared=result.get("rebate_prepared", []) or [],
         churn_label=result.get("churn_label", "") or "",
-        churn_alert=churn_risk > 0.60,
+        churn_alert=necesita_estrategia_retencion(churn_risk, profile),
         node_timings=node_timings,
         decision_threshold=decision_threshold,
         acepta_predicho=acepta_predicho,

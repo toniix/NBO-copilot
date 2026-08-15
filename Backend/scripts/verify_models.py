@@ -9,12 +9,15 @@ contrato que el código del servicio espera:
   1. Carga de los .pkl (propensión = Pipeline XGBoost; churn = bundle KMeans).
   2. Propensión: variables del ColumnTransformer y categorías del OneHotEncoder
      == categorias_produccion.json.
-  3. Churn: orden de bundle['features'] == orden esperado por
-     _churn_features_vector; etiquetas del mapa dentro del vocabulario de riesgo.
+  3. Churn: bundle['features'] == orden esperado por _churn_features_vector
+     (7 features, FASE 8 corregida); tipo_modelo válido; el artefacto KMeans es
+     de referencia. El score individual + cuartiles (churn_score de
+     constantes_produccion.json) se valida contra el fixture ground-truth de
+     Estadística y la etiqueta debe caer en el vocabulario de riesgo.
   4. Contrato: constantes leídas por production_contract == constantes_produccion.json.
   5. Sanidad: terciles de mora re-calculados sobre clientes.csv vs JSON (warning).
-  6. Predicciones de humo: p_acceptance en [0,1] y segmento de churn válido
-     para una muestra de clientes del dataset.
+  6. Predicciones de humo: p_acceptance en [0,1] y etiqueta de churn válida
+     (score + cuartiles) para una muestra de clientes del dataset.
 
 Uso (desde Backend/):
     python scripts/verify_models.py [--source "../ModelosML/FASE 8"] [--clientes 25]
@@ -44,21 +47,44 @@ from app.core.config import settings
 from app.ml.production_contract import (
     contract_sources,
     get_categorias,
+    get_churn_score_config,
     get_riesgo_mora_cortes,
     get_outliers_pctl995,
     get_oferta_hogar_base_id,
     get_umbral_decision,
 )
-from app.ml.model_loader import _churn_features_vector, _build_propension_row_values
+from app.ml.model_loader import (
+    _build_propension_row_values,
+    _churn_label_from_score,
+    get_churn_label,
+)
 
 # ---------------------------------------------------------------------------
 # Contrato esperado (definiciones del pipeline de Estadística, FASE 7 actualizada)
 # ---------------------------------------------------------------------------
 CHURN_FEATURES_ESPERADAS = [
     "antiguedad_meses", "uso_app_movistar_prom", "monto_facturado_prom",
-    "n_reclamos", "n_actividad_canal", "riesgo_mora_score",
-    "tiene_movil", "tiene_hogar", "tiene_internet_hogar", "elegible_mt",
+    "n_reclamos", "n_actividad_canal", "riesgo_mora_score", "elegible_mt",
 ]
+
+# Features del score individual de churn (FASE 8 corregida) y pesos esperados.
+CHURN_SCORE_FEATURES = [
+    "riesgo_mora_score", "n_reclamos", "n_actividad_canal", "uso_app_movistar_prom",
+]
+CHURN_SCORE_PESOS_ESPERADOS = {
+    "riesgo_mora_score": 1.0,
+    "n_reclamos": 5.0,
+    "n_actividad_canal": -1.0,
+    "uso_app_movistar_prom": -1.0,
+}
+CHURN_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "churn_contract.csv"
+CHURN_REWEIGHT_ESPERADO = {"riesgo_mora_score": 2.5, "n_reclamos": 1.5}
+CHURN_MORA_ESPERADA = {
+    "riesgo_bajo": 0.4,
+    "riesgo_medio_bajo": 28.37,
+    "riesgo_medio_alto": 48.66,
+    "riesgo_alto": 98.74,
+}
 
 # Esquema FASE 7 actualizada: n_reclamos_bin y antiguedad_intervalo reemplazan
 # a las versiones numéricas crudas (antiguedad_meses, n_reclamos).
@@ -144,7 +170,7 @@ def check_contract_sources() -> None:
 
 
 def check_churn_bundle() -> None:
-    print("\n[2] Churn (churn_segmentacion.pkl, KMeans)")
+    print("\n[2] Churn (churn_segmentacion.pkl, artefacto FASE 8 corregida)")
     path = settings.churn_model_path_full
     if not path.exists():
         error(f"no existe {path}")
@@ -153,29 +179,183 @@ def check_churn_bundle() -> None:
     if not isinstance(bundle, dict):
         error("no es un bundle dict")
         return
-    for k in ("scaler", "kmeans", "features", "mapa_cluster_a_etiqueta"):
+    for k in ("scaler", "kmeans", "features", "tipo_modelo"):
         if k not in bundle:
             error(f"falta la clave '{k}' en el bundle")
-    if "features" in bundle:
-        if bundle["features"] != CHURN_FEATURES_ESPERADAS:
-            error(
-                "order de features NO coincide.\n"
-                f"    esperado : {CHURN_FEATURES_ESPERADAS}\n"
-                f"    en bundle: {bundle['features']}"
-            )
-        else:
-            ok("features y orden == contrato (_churn_features_vector)")
-    mapa = bundle.get("mapa_cluster_a_etiqueta", {})
-    labels = set(mapa.values())
-    if labels - CHURN_LABELS:
-        error(f"etiquetas fuera de vocabulario: {labels - CHURN_LABELS}")
+    tipo = bundle.get("tipo_modelo")
+    if tipo == "no_supervisado_segmentacion_corregido":
+        ok("tipo_modelo == no_supervisado_segmentacion_corregido")
+    elif tipo is None:
+        error("falta 'tipo_modelo' en el bundle")
     else:
-        ok(f"etiquetas del mapa válidas ({len(mapa)} clusters): {sorted(labels)}")
-    ok(f"scaler mean shape = {bundle['scaler'].mean_.shape} | n_clusters = {bundle['kmeans'].n_clusters}")
+        error(f"tipo_modelo inesperado: {tipo!r}")
+    if bundle.get("features") != CHURN_FEATURES_ESPERADAS:
+        error(
+            "order de features NO coincide.\n"
+            f"    esperado : {CHURN_FEATURES_ESPERADAS}\n"
+            f"    en bundle: {bundle.get('features')}"
+        )
+    else:
+        ok("features y orden == contrato (_churn_features_vector)")
+    try:
+        ok(
+            f"scaler mean shape = {bundle['scaler'].mean_.shape}"
+            f" | n_clusters = {bundle['kmeans'].n_clusters}"
+            f" | n_features_in_ = {bundle['kmeans'].n_features_in_}"
+        )
+    except (KeyError, AttributeError) as exc:
+        error(f"scaler/kmeans malformados: {exc}")
+    mapa = bundle.get("mapa_cluster_a_etiqueta")
+    if mapa:
+        labels = set(mapa.values())
+        if labels - CHURN_LABELS:
+            error(f"etiquetas fuera de vocabulario: {labels - CHURN_LABELS}")
+        else:
+            ok(f"etiquetas del mapa válidas ({len(mapa)} clusters): {sorted(labels)}")
+    else:
+        ok("mapa_cluster_a_etiqueta ausente — el KMeans es artefacto de referencia; "
+           "la etiqueta se asigna por score individual + cuartiles")
+
+
+def check_churn_contract(source: str | None = None) -> None:
+    print("\n[3] Churn — score individual + cuartiles vs ground-truth de Estadística")
+    try:
+        cfg = get_churn_score_config()
+    except Exception as exc:  # noqa: BLE001
+        error(f"no se pudo leer churn_score desde constantes: {exc}")
+        return
+
+    pesos = cfg.get("pesos")
+    if pesos != CHURN_SCORE_PESOS_ESPERADOS:
+        error(f"pesos del score NO coinciden\n    esperado: {CHURN_SCORE_PESOS_ESPERADOS}\n    en JSON : {pesos}")
+    else:
+        ok(f"pesos del score == contrato ({pesos})")
+
+    cuartiles = cfg.get("cuartiles")
+    etiquetas = cfg.get("etiquetas")
+    if cuartiles != [-3.0, 30.33333333333334, 65.16666666666667]:
+        error(f"cuartiles NO coinciden con la entrega: {cuartiles}")
+    else:
+        ok("cuartiles == [-3.0, 30.33..., 65.17...]")
+    if etiquetas != ["riesgo_bajo", "riesgo_medio_bajo", "riesgo_medio_alto", "riesgo_alto"]:
+        error(f"etiquetas NO coinciden: {etiquetas}")
+    else:
+        ok("etiquetas y orden == contrato")
+
+    fixture = CHURN_FIXTURE_PATH
+    if not fixture.exists():
+        warning(f"fixture de ground-truth no encontrado: {fixture} (se omite la validación de etiquetas)")
+        return
+    df = pd.read_csv(fixture)
+    extra = set(df.columns) - set(CHURN_SCORE_FEATURES + ["cliente_id", "churn_risk_label"])
+    if extra:
+        error(f"columnas inesperadas en el fixture: {extra}")
+        return
+
+    score = sum(
+        float(pesos.get(f, 0.0)) * df[f].astype(float)
+        for f in CHURN_SCORE_FEATURES
+    )
+    prediccion = score.map(_churn_label_from_score)
+    match = (prediccion == df["churn_risk_label"]).mean()
+    total = len(df)
+    if match == 1.0:
+        ok(f"{total} filas del fixture: etiqueta (score+cuartiles) == etiqueta oficial (100%)")
+    else:
+        err = int((prediccion != df["churn_risk_label"]).sum())
+        error(
+            f"etiqueta NO reproduce al oficial en {err} de {total} filas del fixture "
+            f"(concordancia {match:.6f})"
+        )
+
+    if "score_crudo" in df.columns:
+        error("el fixture NO debe almacenar scores redondeados (rompe los cortes); "
+              "solo las features + etiqueta oficial")
+
+    # ---- Constantes extra del equipo (2026-08-14): reponderación KMeans + mora esperada ----
+    reweight = cfg.get("kmeans_reponderacion_input")
+    if reweight != CHURN_REWEIGHT_ESPERADO:
+        error(f"kmeans_reponderacion_input NO coincide\n    esperado: {CHURN_REWEIGHT_ESPERADO}\n    en JSON : {reweight}")
+    else:
+        ok(f"kmeans_reponderacion_input == {CHURN_REWEIGHT_ESPERADO}")
+
+    mora_esp = cfg.get("mora_media_esperada_por_etiqueta")
+    if mora_esp != CHURN_MORA_ESPERADA:
+        error(f"mora_media_esperada_por_etiqueta NO coincide\n    esperado: {CHURN_MORA_ESPERADA}\n    en JSON : {mora_esp}")
+    else:
+        ok("mora_media_esperada_por_etiqueta == {0.4 / 28.37 / 48.66 / 98.74}")
+
+    dataset = _churn_dataset(source)
+    if dataset is None:
+        warning("sin CSV de features (entrega o clientes.csv) para validar reponderación y mora — se omite")
+        return
+    autoritativo = dataset.attrs.get("autoritativo", False)
+
+    # Scaler del bundle == medias poblacionales × reponderación (mora·2.5, reclamos·1.5)
+    path = settings.churn_model_path_full
+    if path.exists():
+        bundle = joblib.load(path)
+        mean = np.asarray(bundle["scaler"].mean_)
+        pos = {f: i for i, f in enumerate(bundle["features"])}
+        for feat, peso in CHURN_REWEIGHT_ESPERADO.items():
+            esperado = float(dataset[feat].mean()) * peso
+            actual = float(mean[pos[feat]])
+            if np.isclose(esperado, actual, rtol=1e-3):
+                ok(f"scaler.mean_[{feat}] == μ·{peso} ({actual:.4f})")
+            else:
+                error(f"scaler.mean_[{feat}]={actual:.4f} != μ({feat})·{peso}={esperado:.4f}")
+
+    # Mora media por etiqueta (pipeline completo score+cuartiles) == esperado del equipo
+    score_pop = sum(
+        float(pesos.get(f, 0.0)) * dataset[f].astype(float)
+        for f in CHURN_SCORE_FEATURES
+    )
+    etq = score_pop.map(_churn_label_from_score)
+    med = pd.DataFrame({"etq": etq, "mora": dataset["riesgo_mora_score"].astype(float)})
+    med = med.groupby("etq")["mora"].mean()
+    for lab, esperado in CHURN_MORA_ESPERADA.items():
+        if lab not in med:
+            error(f"etiqueta '{lab}' sin datos")
+            continue
+        actual = float(med.loc[lab])
+        if abs(actual - esperado) <= 0.05:
+            ok(f"mora media {lab} = {actual:.2f} ≈ esperado {esperado}")
+        elif autoritativo:
+            error(f"mora media {lab} = {actual:.2f} != esperado {esperado}")
+        else:
+            warning(
+                f"mora media {lab} = {actual:.2f} vs esperado {esperado} "
+                "(clientes.csv ≈ entrega; validación estricta requiere --source)"
+            )
+
+
+def _churn_dataset(source: str | None) -> pd.DataFrame | None:
+    """DataFrame con las 4 features del score + cliente_id, desde el CSV de la
+    entrega (clientes_features_modelo.csv) o, si no está disponible, derivándolo
+    de clientes.csv del backend (riesgo_mora_score = dias_mora_prom + meses_moroso·30).
+    El CSV de la entrega es la fuente autoritativa (attrs['autoritativo']=True)."""
+    if source:
+        fcsv = Path(source) / "clientes_features_modelo.csv"
+        if fcsv.exists():
+            df = pd.read_csv(fcsv, usecols=["cliente_id"] + CHURN_SCORE_FEATURES)
+            df.attrs["autoritativo"] = True
+            return df
+    data_path = settings.data_path_full
+    if data_path.exists():
+        usecols = [
+            "cliente_id", "dias_mora_prom", "meses_moroso", "n_reclamos",
+            "n_actividad_canal", "uso_app_movistar_prom",
+        ]
+        df = pd.read_csv(data_path, low_memory=False, usecols=usecols)
+        df["riesgo_mora_score"] = df["dias_mora_prom"].fillna(0) + df["meses_moroso"].fillna(0) * 30.0
+        df = df[["cliente_id"] + CHURN_SCORE_FEATURES]
+        df.attrs["autoritativo"] = False
+        return df
+    return None
 
 
 def check_propension_pipeline() -> None:
-    print("\n[3] Propensión (modelo_propension.pkl, Pipeline XGBoost)")
+    print("\n[4] Propensión (modelo_propension.pkl, Pipeline XGBoost)")
     path = settings.propension_model_path_full
     if not path.exists():
         error(f"no existe {path}")
@@ -249,7 +429,7 @@ def check_propension_pipeline() -> None:
 
 
 def check_constantes_consistency() -> None:
-    print("\n[4] Consistencia constantes (production_contract vs JSON crudo)")
+    print("\n[5] Consistencia constantes (production_contract vs JSON crudo)")
     import json as _json
 
     path = settings.constantes_path_full
@@ -291,7 +471,7 @@ def _valores_iguales(a, b) -> bool:
 
 
 def check_mora_terciles_sanity() -> None:
-    print("\n[5] Sanidad: terciles de mora re-calculados sobre clientes.csv (warning)")
+    print("\n[6] Sanidad: terciles de mora re-calculados sobre clientes.csv (warning)")
     data_path = settings.data_path_full
     if not data_path.exists():
         warning(f"dataset no encontrado para re-calcular terciles: {data_path}")
@@ -319,7 +499,7 @@ def _parse_bool(v) -> bool:
 
 
 def check_predictions(clientes_n: int) -> None:
-    print(f"\n[6] Predicciones de humo ({clientes_n} clientes)")
+    print(f"\n[7] Predicciones de humo ({clientes_n} clientes)")
     data_path = settings.data_path_full
     if not data_path.exists():
         error(f"dataset no encontrado: {data_path}")
@@ -328,8 +508,7 @@ def check_predictions(clientes_n: int) -> None:
     if clientes_n > len(df):
         clientes_n = len(df)
 
-    churn_path, prop_path = settings.churn_model_path_full, settings.propension_model_path_full
-    churn_bundle = joblib.load(churn_path) if churn_path.exists() else None
+    prop_path = settings.propension_model_path_full
     pipeline = joblib.load(prop_path) if prop_path.exists() else None
 
     totals = {"ok": 0, "bad": 0}
@@ -342,16 +521,17 @@ def check_predictions(clientes_n: int) -> None:
             totals["bad"] += 1
             continue
 
-        # Churn
-        if churn_bundle is not None:
-            X = _churn_features_vector(perfil)
-            X_s = churn_bundle["scaler"].transform(X)
-            cluster = int(churn_bundle["kmeans"].predict(X_s)[0])
-            etiqueta = churn_bundle["mapa_cluster_a_etiqueta"].get(cluster)
-            if etiqueta not in CHURN_LABELS:
-                error(f"cliente {raw['cliente_id']}: etiqueta churn inválida '{etiqueta}'")
-                totals["bad"] += 1
-                continue
+        # Churn (score individual + cuartiles; sin KMeans en runtime)
+        try:
+            etiqueta = get_churn_label(perfil)
+        except Exception as exc:  # noqa: BLE001
+            error(f"cliente {raw['cliente_id']}: churn score → {exc}")
+            totals["bad"] += 1
+            continue
+        if etiqueta not in CHURN_LABELS:
+            error(f"cliente {raw['cliente_id']}: etiqueta churn inválida '{etiqueta}'")
+            totals["bad"] += 1
+            continue
 
         # Propensión
         if pipeline is not None:
@@ -403,7 +583,7 @@ def _minimal_profile(raw: pd.Series) -> dict:
 
 
 def check_source_md5(source: str | None) -> None:
-    print("\n[7] Comparación con la entrega de Estadística (md5)")
+    print("\n[8] Comparación con la entrega de Estadística (md5)")
     if not source:
         print("  (omitido — usa --source ModelosML/FASE 8 para comparar)")
         return
@@ -447,6 +627,7 @@ def main() -> int:
 
     check_contract_sources()
     check_churn_bundle()
+    check_churn_contract(args.source)
     check_propension_pipeline()
     check_constantes_consistency()
     check_mora_terciles_sanity()

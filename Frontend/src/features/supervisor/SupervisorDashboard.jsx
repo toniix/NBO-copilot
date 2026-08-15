@@ -36,6 +36,7 @@ import { getSupervisorMetrics } from '../../services/api.js'
 import { exportToCSV, exportToHTML, exportToPDF } from '../../lib/exportUtils.js'
 import mockSalesHistory from '../../mock/sales_history.js'
 import { PROJECTION_WINDOW_DAYS, MONTH_DAYS } from '../../config/projectionConfig.js'
+import NboEngineMetricsModal from './NboEngineMetricsModal'
 
 const retentionData = [
   { name: 'Lun', retenidos: 40 },
@@ -61,6 +62,7 @@ const SupervisorDashboard = () => {
   const [salesEvents, setSalesEvents] = useState([])
   const [backendMetrics, setBackendMetrics] = useState(null)
   const [isBackendLoading, setIsBackendLoading] = useState(true)
+  const [isNboModalOpen, setIsNboModalOpen] = useState(false)
 
   // Fetch metrics from backend API /api/v1/supervisor/metrics
   useEffect(() => {
@@ -207,7 +209,7 @@ const SupervisorDashboard = () => {
               </span>
               <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-[#3f8b00] border border-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#5BC500] animate-pulse" />
-                {backendMetrics ? 'API Backend Conectada' : 'Modo Híbrido Real'}
+                Sistema Conectado en Tiempo Real
               </span>
             </div>
             <h2 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-[#313235]">
@@ -221,8 +223,16 @@ const SupervisorDashboard = () => {
           <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
             <button
               type="button"
+              onClick={() => setIsNboModalOpen(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#019DF4] to-[#0176b5] px-4 py-2.5 text-xs font-extrabold text-white shadow-md shadow-[#019DF4]/20 transition hover:from-[#008bd8] hover:to-[#01659c] sm:w-auto"
+            >
+              <Cpu className="h-4 w-4" aria-hidden="true" />
+              Motor NBO IA
+            </button>
+            <button
+              type="button"
               onClick={downloadPdfReport}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#019DF4] px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#008bd8] sm:w-auto"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-2xs transition hover:bg-slate-50 sm:w-auto"
             >
               <FileText className="h-4 w-4" aria-hidden="true" />
               Exportar PDF
@@ -252,7 +262,7 @@ const SupervisorDashboard = () => {
             icon={CheckCircle2}
             label="Tasa de Conversión Real"
             value={`${kpis.conversion_rate != null ? kpis.conversion_rate : acceptanceRate}%`}
-            detail="Trazabilidad acumulada backend"
+            detail="Gestiones registradas acumuladas"
             color="text-[#5BC500]"
             bg="bg-green-50"
           />
@@ -291,7 +301,7 @@ const SupervisorDashboard = () => {
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-rose-600">
                   Análisis de Objeciones
                 </span>
-                <h3 className="text-base font-bold text-[#313235]">Motivos de Rechazo (Backend)</h3>
+                <h3 className="text-base font-bold text-[#313235]">Motivos de Rechazo de Ofertas</h3>
               </div>
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
                 <AlertTriangle className="h-5 w-5" aria-hidden="true" />
@@ -422,6 +432,13 @@ const SupervisorDashboard = () => {
           </div>
         </section>
       </div>
+
+      {/* Modal de Métricas del Motor NBO IA (Fase 8) */}
+      <NboEngineMetricsModal
+        isOpen={isNboModalOpen}
+        onClose={() => setIsNboModalOpen(false)}
+        fase8Kpis={backendMetrics?.fase8_kpis}
+      />
     </DashboardLayout>
   )
 }

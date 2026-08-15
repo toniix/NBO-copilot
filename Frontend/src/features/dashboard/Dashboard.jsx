@@ -15,6 +15,7 @@ const Dashboard = () => {
     isLoading,
     clientData,
     error,
+    errorType,
     isSimulatorModalOpen,
     showInlineForm,
     isOfferTabOpen,
@@ -67,9 +68,9 @@ const Dashboard = () => {
       )}
 
       <div className="space-y-4">
-        {/* Top Search Section (Ultra-Compact when results exist) */}
+        {/* Top Search Section (Sticky & Ultra-Compact when results exist) */}
         {clientData ? (
-          <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/90 bg-white p-3 px-4 shadow-2xs">
+          <section className="sticky top-3 z-30 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-md p-3 px-4 shadow-sm transition-all duration-300">
             <div className="flex items-center gap-2.5 min-w-0">
               <span className="flex h-2.5 w-2.5 shrink-0 rounded-full bg-[#5BC500]" />
               <p className="text-xs font-bold uppercase tracking-wider text-[#019DF4] shrink-0">
@@ -124,6 +125,8 @@ const Dashboard = () => {
             isLoading={false}
             clientData={clientData}
             error={error}
+            errorType={errorType}
+            onClear={clearResults}
             onOffer={openOfferTab}
             onAccept={handleAccept}
             onReject={handleReject}

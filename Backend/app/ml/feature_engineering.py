@@ -12,7 +12,11 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 from app.core.config import settings
-from app.ml.production_contract import get_outliers_pctl995, get_oferta_hogar_base_id
+from app.ml.production_contract import (
+    get_outliers_pctl995,
+    get_oferta_hogar_base_id,
+    get_riesgo_mora_cortes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,21 @@ PLAN_DESCRIPTIONS: dict[str, str] = {
 }
 
 CHURN_HIGH_THRESHOLD = 0.60  # Por encima → lógica de fidelización
+
+
+def necesita_estrategia_retencion(churn_risk: float, profile: dict) -> bool:
+    """
+    Decide si la oferta debe enmarcarse como retención.
+
+    El KMeans de FASE 8 colapsa a los clientes sin línea móvil a riesgo_bajo
+    (el binario tiene_movil domina el espacio y la etiqueta se asigna por
+    media de cluster con scores empatados), aunque tengan mora real. Para que
+    la retención no dependa solo del churn del bundle, se suma la señal de
+    mora real del contrato (riesgo_mora_nivel 'alto', tercil superior).
+    """
+    if churn_risk > CHURN_HIGH_THRESHOLD:
+        return True
+    return profile.get("riesgo_mora_nivel") == "alto"
 
 # Umbrales de outlier: fuente única de verdad = constantes_produccion.json
 # (percentil 99.5 del training set — datos idénticos a clientes.csv)
@@ -262,6 +281,7 @@ def get_customer_profile(cliente_id: str) -> dict | None:
         "ratio_uso_datos": ratio_uso_datos,
         "historial_mora": historial_mora,
         "riesgo_mora_score": round(riesgo_mora_score, 4),
+        "riesgo_mora_nivel": _riesgo_mora_nivel(riesgo_mora_score),
         "diferencia_gasto": round(diferencia_gasto, 4),
         "gb_plan_actual": gb_plan_actual,
         "brecha_datos": brecha_datos_val,
@@ -307,6 +327,16 @@ def _resolve_plan_description(plan_id: str) -> str:
     except Exception:
         pass  # catálogo aún no cargado → fallback estático
     return PLAN_DESCRIPTIONS.get(plan_id, plan_id)
+
+
+def _riesgo_mora_nivel(riesgo_mora_score: float) -> str:
+    """Nivel de mora (bajo/medio/alto) según terciles de constantes_produccion.json."""
+    cortes = get_riesgo_mora_cortes()
+    if riesgo_mora_score <= cortes["corte_33"]:
+        return "bajo"
+    if riesgo_mora_score <= cortes["corte_66"]:
+        return "medio"
+    return "alto"
 
 
 def _parse_bool(value) -> bool:

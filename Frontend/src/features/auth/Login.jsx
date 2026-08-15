@@ -32,45 +32,42 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F5F6F8' }}>
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-sm">
         {/* Tarjeta principal */}
-        <div
-          className="bg-white rounded-xl shadow-lg overflow-hidden"
-          style={{ padding: '48px', borderRadius: '16px' }}
-        >
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-8">
           {/* Logo/Título */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
+          <div className="text-center mb-6">
+            <div className="flex items-center justify-center gap-3 mb-3">
               <div
-                className="w-12 h-12 rounded-lg flex items-center justify-center"
+                className="w-10 h-10 rounded-xl flex items-center justify-center"
                 style={{ backgroundColor: '#019DF4' }}
               >
-                <span className="text-white font-bold text-2xl">M</span>
+                <span className="text-white font-bold text-lg">M</span>
               </div>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            <h1 className="text-xl font-bold text-gray-900">
               Portal Comercial
             </h1>
-            <p className="text-gray-600">
-              Next Best Offer
+            <p className="text-sm text-gray-600 mt-0.5">
+              Next Best Offer · Movistar
             </p>
           </div>
 
           {/* Formulario */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {errorMessage && (
-              <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+              <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
                 {errorMessage}
               </p>
             )}
             {/* Campo Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="email" className="block text-xs font-semibold text-gray-700 mb-1.5">
                 Correo Electrónico
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
+                  <Mail className="h-4 w-4 text-gray-400" />
                 </div>
                 <input
                   id="email"
@@ -80,8 +77,7 @@ const LoginPage = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                  style={{ borderColor: '#E5E7EB', '--tw-ring-color': '#019DF4' }}
+                  className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#019DF4]/40 focus:border-[#019DF4] transition-all"
                   placeholder="usuario@movistar.com"
                 />
               </div>
@@ -89,12 +85,12 @@ const LoginPage = () => {
 
             {/* Campo Contraseña */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="password" className="block text-xs font-semibold text-gray-700 mb-1.5">
                 Contraseña
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
+                  <Lock className="h-4 w-4 text-gray-400" />
                 </div>
                 <input
                   id="password"
@@ -104,8 +100,7 @@ const LoginPage = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                  style={{ borderColor: '#E5E7EB', '--tw-ring-color': '#019DF4' }}
+                  className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#019DF4]/40 focus:border-[#019DF4] transition-all"
                   placeholder="••••••••"
                   minLength={6}
                 />
@@ -116,15 +111,14 @@ const LoginPage = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 rounded-lg text-white font-semibold text-base transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full py-2.5 px-4 rounded-xl text-white font-semibold text-sm transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
               style={{
                 backgroundColor: isLoading ? '#B0C4DE' : '#019DF4',
-                '--tw-ring-offset-color': '#019DF4'
               }}
             >
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
@@ -139,8 +133,8 @@ const LoginPage = () => {
         </div>
 
         {/* Footer con copyright */}
-        <p className="text-center text-gray-500 text-sm mt-8">
-          © 2024 Movistar Chile - Todos los derechos reservados
+        <p className="text-center text-gray-500 text-xs mt-6">
+          © 2026 Movistar Perú · Todos los derechos reservados
         </p>
       </div>
     </div>

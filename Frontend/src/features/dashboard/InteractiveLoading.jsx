@@ -30,31 +30,31 @@ const InteractiveLoading = () => {
   const CurrentIcon = LOADING_STEPS[currentStep].icon
 
   return (
-    <div className="mx-auto my-8 max-w-2xl rounded-3xl border border-slate-200/80 bg-white p-8 shadow-xl shadow-slate-200/50 transition-all">
+    <div className="mx-auto my-6 max-w-2xl rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xl shadow-slate-200/50 transition-all">
       {/* Top AI Indicator */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#019DF4] to-[#5BC500] text-white shadow-md shadow-[#019DF4]/20">
-            <Sparkles className="h-6 w-6 animate-pulse" aria-hidden="true" />
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#019DF4] to-[#5BC500] text-white shadow-md shadow-[#019DF4]/20">
+            <Sparkles className="h-5 w-5 animate-pulse" aria-hidden="true" />
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#5BC500] opacity-75" />
-              <span className="relative inline-flex h-3.5 w-3.5 rounded-full bg-[#5BC500]" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-[#5BC500]" />
             </span>
           </div>
           <div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#019DF4]">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#019DF4]">
               IA Motor NBO Copilot
             </p>
-            <h3 className="text-lg font-bold text-[#313235]">Analizando cliente en tiempo real</h3>
+            <h3 className="text-base font-bold text-[#313235]">Analizando cliente en tiempo real</h3>
           </div>
         </div>
-        <span className="rounded-full bg-blue-50 px-3.5 py-1 text-sm font-bold text-[#019DF4]">
+        <span className="rounded-full bg-blue-50 px-3 py-0.5 text-xs font-bold text-[#019DF4]">
           {progress}%
         </span>
       </div>
 
       {/* Progress Bar */}
-      <div className="mt-6 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
         <div
           className="h-full rounded-full bg-gradient-to-r from-[#019DF4] via-[#019DF4] to-[#5BC500] transition-all duration-300 ease-out"
           style={{ width: `${progress}%` }}
@@ -62,18 +62,18 @@ const InteractiveLoading = () => {
       </div>
 
       {/* Current Step Spotlight */}
-      <div className="mt-6 flex items-start gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
-        <div className="rounded-xl bg-white p-2.5 text-[#019DF4] shadow-xs">
-          <CurrentIcon className="h-6 w-6 animate-bounce" aria-hidden="true" />
+      <div className="mt-4 flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-3">
+        <div className="rounded-xl bg-white p-2 text-[#019DF4] shadow-xs">
+          <CurrentIcon className="h-5 w-5 animate-bounce" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-[#313235]">{LOADING_STEPS[currentStep].title}</p>
+          <p className="text-[13px] font-bold text-[#313235]">{LOADING_STEPS[currentStep].title}</p>
           <p className="mt-0.5 text-xs text-slate-500">{LOADING_STEPS[currentStep].subtitle}</p>
         </div>
       </div>
 
       {/* Steps List */}
-      <div className="mt-6 space-y-3 border-t border-slate-100 pt-5">
+      <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-4">
         {LOADING_STEPS.map((step, idx) => {
           const isDone = idx < currentStep
           const isCurrent = idx === currentStep
