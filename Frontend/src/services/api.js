@@ -37,10 +37,17 @@ export const getRecommendation = async (identifier) => {
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(
-      text || `Error ${response.status} obteniendo recomendación`,
-    );
+    let message = `Error ${response.status} obteniendo recomendación`
+    try {
+      const data = await response.json()
+      if (data?.detail) message = data.detail
+    } catch {
+      const text = await response.text()
+      if (text) message = text
+    }
+    const err = new Error(message)
+    err.status = response.status
+    throw err
   }
 
   const payload = await response.json();

@@ -1,11 +1,11 @@
-import { HandCoins, MessagesSquare, Route, Timer } from 'lucide-react'
-import Section from './Section'
+import { HandCoins, MessagesSquare, Route, Timer } from "lucide-react";
+import Section from "./Section";
 
 const CanalPanel = ({ clientData }) => {
-  const channel = clientData.channel || {}
-  const rebates = clientData.rebates || []
+  const channel = clientData.channel || {};
+  const rebates = clientData.rebates || [];
 
-  if (!channel.channel && rebates.length === 0) return null
+  if (!channel.channel && rebates.length === 0) return null;
 
   return (
     <Section
@@ -18,11 +18,31 @@ const CanalPanel = ({ clientData }) => {
         <dl className="space-y-4">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-              <MessagesSquare className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              <MessagesSquare
+                className="h-4 w-4 text-slate-500"
+                aria-hidden="true"
+              />
             </span>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Canal recomendado</dt>
-              <dd className="font-semibold text-[#313235]">{channel.channel || channel.canal_actual || '—'}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Canal recomendado
+              </dt>
+              <div className="flex items-center gap-2">
+                <dd className="font-semibold text-[#313235]">
+                  {channel.channel || channel.canal_actual || "—"}
+                </dd>
+                {channel.confianza && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      channel.confianza === "alta"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        : "bg-slate-100 text-slate-600 border border-slate-200"
+                    }`}
+                  >
+                    Confianza: {channel.confianza}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-start gap-3">
@@ -30,8 +50,12 @@ const CanalPanel = ({ clientData }) => {
               <Timer className="h-4 w-4 text-slate-500" aria-hidden="true" />
             </span>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Momento ideal</dt>
-              <dd className="font-semibold text-[#313235]">{channel.timing || '—'}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Momento ideal
+              </dt>
+              <dd className="font-semibold text-[#313235]">
+                {channel.timing || "—"}
+              </dd>
             </div>
           </div>
           {channel.advice && (
@@ -40,8 +64,12 @@ const CanalPanel = ({ clientData }) => {
                 <Route className="h-4 w-4 text-slate-500" aria-hidden="true" />
               </span>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Consejo de ejecución</dt>
-                <dd className="text-sm leading-6 text-slate-700">{channel.advice}</dd>
+                <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Consejo de ejecución
+                </dt>
+                <dd className="text-sm leading-6 text-slate-700">
+                  {channel.advice}
+                </dd>
               </div>
             </div>
           )}
@@ -50,18 +78,29 @@ const CanalPanel = ({ clientData }) => {
         <div>
           {rebates.length > 0 ? (
             <dl className="space-y-3">
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Palancas de rebate</dt>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Palancas de rebate
+              </dt>
               {rebates.map((rebate, index) => (
                 <dd
-                  key={`${rebate.motivo || 'rebate'}-${index}`}
+                  key={`${rebate.motivo || "rebate"}-${index}`}
                   className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 p-4"
                 >
-                  <HandCoins className="mt-0.5 h-5 w-5 shrink-0 text-[#B8860B]" aria-hidden="true" />
+                  <HandCoins
+                    className="mt-0.5 h-5 w-5 shrink-0 text-[#B8860B]"
+                    aria-hidden="true"
+                  />
                   <div className="min-w-0">
-                    <p className="font-semibold capitalize text-[#313235]">{rebate.motivo || 'Oferta especial'}</p>
-                    <p className="mt-0.5 text-sm leading-6 text-slate-600">{rebate.estrategia}</p>
+                    <p className="font-semibold capitalize text-[#313235]">
+                      {rebate.motivo || "Oferta especial"}
+                    </p>
+                    <p className="mt-0.5 text-sm leading-6 text-slate-600">
+                      {rebate.estrategia}
+                    </p>
                     {rebate.argumento_base && (
-                      <p className="mt-1 text-xs italic leading-5 text-slate-500">«{rebate.argumento_base}»</p>
+                      <p className="mt-1 text-xs italic leading-5 text-slate-500">
+                        «{rebate.argumento_base}»
+                      </p>
                     )}
                   </div>
                 </dd>
@@ -75,7 +114,7 @@ const CanalPanel = ({ clientData }) => {
         </div>
       </div>
     </Section>
-  )
-}
+  );
+};
 
-export default CanalPanel
+export default CanalPanel;

@@ -119,6 +119,7 @@ const useDashboardStore = create((set, get) => ({
   isLoading: false,
   clientData: null,
   error: null,
+  errorType: null,
   isSimulatorModalOpen: false,
   showInlineForm: false,
   isOfferTabOpen: false,
@@ -138,7 +139,7 @@ const useDashboardStore = create((set, get) => ({
   openOfferTab: () => set({ isOfferTabOpen: true, selectedOfferId: 'principal', offerOutcome: null }),
   closeOfferTab: () => set({ isOfferTabOpen: false, offerOutcome: null }),
   selectOffer: (selectedOfferId) => set({ selectedOfferId }),
-  clearResults: () => set({ clientData: null, searchQuery: '', error: null, isLoading: false, showInlineForm: false, isOfferTabOpen: false, offerOutcome: null, selectedOfferId: 'principal' }),
+  clearResults: () => set({ clientData: null, searchQuery: '', error: null, errorType: null, isLoading: false, showInlineForm: false, isOfferTabOpen: false, offerOutcome: null, selectedOfferId: 'principal' }),
 
   registrarVenta: (advisorRef) => {
     const advisorId = typeof advisorRef === 'string' ? advisorRef : (advisorRef?.id || advisorRef?.advisorId || 'unknown')
@@ -203,16 +204,16 @@ const useDashboardStore = create((set, get) => ({
 
   searchClient: async (identifier) => {
     const normalizedPhone = identifier.trim().toUpperCase()
-    set({ searchQuery: normalizedPhone, isLoading: true, clientData: null, error: null })
+    set({ searchQuery: normalizedPhone, isLoading: true, clientData: null, error: null, errorType: null })
     const cachedCustomers = JSON.parse(localStorage.getItem(CUSTOMER_CACHE_KEY) || '{}')
     if (cachedCustomers[normalizedPhone]) {
       const existingClient = cachedCustomers[normalizedPhone]
-      set({ isLoading: false, clientData: existingClient, error: null })
+      set({ isLoading: false, clientData: existingClient, error: null, errorType: null })
       return existingClient
     }
 
     if (normalizedPhone === DEMO_PHONE) {
-      set({ isLoading: false, clientData: demoClient, error: null })
+      set({ isLoading: false, clientData: demoClient, error: null, errorType: null })
       return demoClient
     }
 
@@ -220,20 +221,31 @@ const useDashboardStore = create((set, get) => ({
       const recommendation = await getRecommendation(normalizedPhone)
       if (recommendation) {
         const client = buildClientDataFromRecommendation(recommendation, normalizedPhone)
-        set({ isLoading: false, clientData: client, error: null })
+        set({ isLoading: false, clientData: client, error: null, errorType: null })
         return client
       }
     } catch (error) {
       console.error('Error fetching recommendation:', error)
-      set({ isLoading: false, error: 'No se pudo obtener la recomendación desde el backend.' })
+      const status = error?.status
+      let errorType = 'unknown'
+      let message = error?.message || 'No se pudo obtener la recomendación.'
+
+      if (!status) {
+        errorType = 'network'
+        message = 'No se pudo conectar con el servidor. Verifica que el backend esté corriendo en http://localhost:8000.'
+      } else if (status === 404) {
+        errorType = 'not_found'
+      } else if (status === 422) {
+        errorType = 'validation'
+      } else if (status >= 500) {
+        errorType = 'server'
+      }
+
+      set({ isLoading: false, clientData: null, error: message, errorType })
       return null
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 600))
-    const error = 'Cliente no registrado. Complete datos para simular localmente.'
-    set({ isLoading: false, clientData: null, error })
-    // Show inline form for advisor to simulate new customer
-    get().openInlineForm()
+    set({ isLoading: false, clientData: null, error: 'Cliente no encontrado en la base de datos.', errorType: 'not_found' })
     return null
   },
 

@@ -2,12 +2,6 @@ import { LoaderCircle, RotateCcw, Search, Sparkles, X } from "lucide-react";
 
 const SEARCH_PATTERN = /^(CLI\d{3,}|\d{8}|\d{9})$/i;
 
-const QUICK_SEARCHES = [
-  { label: "Demo Principal", value: "999999999" },
-  { label: "Cliente Frecuente", value: "CLI000013" },
-  { label: "Prepago Alto Churn", value: "987654321" },
-];
-
 const normalizeInput = (value) => value.toUpperCase().replace(/[^0-9A-Z]/g, "");
 
 const SearchBar = ({
@@ -28,11 +22,6 @@ const SearchBar = ({
     if (!SEARCH_PATTERN.test(normalized) || isLoading) return;
 
     await onSearch(normalized);
-  };
-
-  const handleQuickSelect = (value) => {
-    onChange(value);
-    onSearch(value);
   };
 
   if (compact) {
@@ -165,22 +154,6 @@ const SearchBar = ({
           )}
         </div>
       </form>
-
-      {/* Quick Search Chips */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
-        <span className="font-semibold text-slate-400">Consultas demo:</span>
-        {QUICK_SEARCHES.map((chip) => (
-          <button
-            key={chip.value}
-            type="button"
-            onClick={() => handleQuickSelect(chip.value)}
-            disabled={isLoading}
-            className="rounded-full bg-white border border-slate-200 px-2.5 py-0.5 font-medium text-slate-600 shadow-2xs hover:border-[#019DF4] hover:text-[#019DF4] transition-all disabled:opacity-50"
-          >
-            {chip.label} ({chip.value})
-          </button>
-        ))}
-      </div>
     </div>
   );
 };

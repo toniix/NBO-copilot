@@ -20,6 +20,8 @@ from chromadb.utils import embedding_functions
 
 from app.core.config import settings
 from app.agents.utils import is_mt_offer
+from app.ml.production_contract import get_umbral_decision
+from app.ml.feature_engineering import necesita_estrategia_retencion
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,38 @@ COLLECTION_NAME = "catalogo_ofertas"
 # cliente arrastra mora, el tope se endurece para no empujar upselling premium.
 AFFORDABILITY_FACTOR = 1.5
 AFFORDABILITY_FACTOR_MOROSO = 1.25
+
+
+def _affordability_cap(profile: dict) -> float | None:
+    """
+    Tope de precio del cliente según FASE 7: factor × referencia de gasto
+    (factura promedio; si falta, precio del plan actual). Con mora el factor
+    se endurece (1.25) para no empujar upselling premium a morosos.
+    """
+    factura = _as_float(profile.get("monto_facturado_prom"))
+    if factura is None:
+        factura = _plan_actual_price(profile)
+    if factura is None:
+        return None
+    moroso = int(profile.get("meses_moroso", 0) or 0) > 0
+    factor = AFFORDABILITY_FACTOR_MOROSO if moroso else AFFORDABILITY_FACTOR
+    return factura * factor
+
+# ---------------------------------------------------------------------------
+# Umbral de propensión a Movistar Total (contrato con Estadística)
+# ---------------------------------------------------------------------------
+# mt_propensity es la media de p_acceptance sobre las ofertas MT (probabilidades
+# del modelo de aceptación). Se alinea con el umbral de decisión del modelo
+# (umbral_decision_modelo) para que "alta propensión" tenga el mismo significado
+# que "aceptaría" según la última versión del ML de Estadística.
+MT_PROPENSITY_THRESHOLD: float = float(get_umbral_decision())
+
+# ---------------------------------------------------------------------------
+# Prior de Movistar Total sobre el ranking ML (boost suave)
+# ---------------------------------------------------------------------------
+# λ en p_acceptance + λ·I_mt. Valor ~ +5 p.p.: prioriza MT sin que el boost
+# binario eclipse la diferencia real de propensión entre ofertas.
+MT_PROPENSITY_BOOST: float = 0.05
 
 # ---------------------------------------------------------------------------
 # Singleton — índice y catálogo crudo se cargan una sola vez
@@ -96,6 +130,50 @@ def get_catalog_df() -> pd.DataFrame:
     return _catalog_df
 
 
+def _row_to_offer(row: "pd.Series", score: float = 0.0) -> dict:
+    """Convierte una fila del catálogo crudo en el dict de oferta del pipeline."""
+    return {
+        "oferta_id": str(row["oferta_id"]),
+        "nombre_oferta": str(row["nombre_oferta"]),
+        "tipo_oferta": str(row["tipo_oferta"]),
+        "segmento_objetivo": str(row["segmento_objetivo"]),
+        "es_movistar_total": str(row["es_movistar_total"]),
+        "precio_mensual": _as_float(row["precio_mensual"]),
+        "ahorro_pct": _as_float(row["ahorro_pct"]) or 0.0,
+        "gb_incluidos": _as_float(row["gb_incluidos"]) or 0.0,
+        "cluster_hogar": (
+            str(row["cluster_hogar"]) if pd.notna(row["cluster_hogar"]) else ""
+        ),
+        "descripcion_bundle": (
+            str(row["descripcion_bundle"]) if pd.notna(row["descripcion_bundle"]) else ""
+        ),
+        "descripcion_corta": (
+            str(row["descripcion_corta"]) if pd.notna(row["descripcion_corta"]) else ""
+        ),
+        "score": float(score),
+    }
+
+
+def get_all_catalog_offers() -> list[dict]:
+    """
+    Devuelve TODAS las ofertas del catálogo como dicts, sin filtros.
+
+    El NBO es un optimizador global: se puntúan todas las ofertas elegibles con
+    el modelo de aceptación (p_acceptance) y se rankean por ML. El RAG queda como
+    memoria semántica (score de relevancia para desempate y alternativas del LLM),
+    no como compuerta que recorta el catálogo.
+    """
+    catalog = get_catalog_df()
+    return [_row_to_offer(row) for _, row in catalog.iterrows()]
+
+
+def filter_by_business_rules(
+    offers: list[dict], profile: dict, scores: dict
+) -> list[dict]:
+    """Wrapper público de `_filter_by_business_rules` (usado por el nodo NBO)."""
+    return _filter_by_business_rules(offers, profile, scores)
+
+
 def retrieve_offers(
     profile: dict,
     scores: dict,
@@ -140,20 +218,12 @@ def retrieve_offers(
     # 3) Boosting híbrido: si churn/alta propensión MT, priorizar ofertas MT
     offers = _boost_relevant_offers(offers, profile, scores)
 
-    # Ordenar por relevancia combinada:
-    # - Ofertas MT con prefer_mt activo van primeras
-    # - Ofertas NO-MT o MT sin prefer_mt se ordenan por score semántico
-    # - Ofertas MT cuando prefer_mt=False reciben penalización para no desplazar
-    #   por inercia a ofertas más relevantes para el cliente
-    prefer = _prefer_mt(profile, scores)
-    offers.sort(
-        key=lambda o: (
-            1.0 if is_mt_offer(o) and prefer else
-            -0.3 if is_mt_offer(o) and not prefer else
-            o.get("score", 0.0)
-        ),
-        reverse=True,
-    )
+    # Ordenar por relevancia combinada: score semántico + prior suave de MT.
+    # El boost binario (1.0) se reemplaza por el prior acotado del ranking ML
+    # (p + λ·I_mt) para no eclipsar la señal real de relevancia.
+    for o in offers:
+        o["score"] = o.get("score", 0.0) + _boost_mt_propensity(o, profile)
+    offers.sort(key=lambda o: o.get("score", 0.0), reverse=True)
 
     return offers[:top_k]
 
@@ -172,13 +242,13 @@ def _build_query(profile: dict, scores: dict) -> str:
     mt_prop = float(scores.get("mt_propensity", 0) or 0)
 
     contexto = []
-    if churn > 0.60:
+    if necesita_estrategia_retencion(churn, profile):
         contexto.append("alto riesgo de cancelacion, necesita retencion con descuento o beneficio especial")
     else:
         contexto.append("cliente estable con oportunidad de crecimiento y mejora de plan")
     # MT solo si el cliente es elegible; si no, mencionarlo lo arrastra hacia
     # ofertas convergentes premium que no puede contratar.
-    if mt_prop > 0.50 and profile.get("elegible_mt"):
+    if mt_prop > MT_PROPENSITY_THRESHOLD and profile.get("elegible_mt"):
         contexto.append("muy propenso a Movistar Total convergente")
     if int(profile.get("meses_moroso", 0) or 0) > 0:
         contexto.append("cliente con retrasos de pago, priorizar ofertas economicas y de retencion, evitar planes premium")
@@ -199,11 +269,14 @@ def _prefer_mt(profile: dict, scores: dict) -> bool:
 
     Condiciones:
     - Clientes ya MT: solo si hay un upgrade superior disponible.
-    - Clientes NO-MT: deben ser elegibles Y tener alta propensión MT (> 0.65).
-      El umbral 0.65 discrimina dentro del grupo de elegibles entre quienes
-      el modelo (FASE 8) predice alta vs. baja probabilidad de aceptar una oferta MT.
+    - Clientes NO-MT: deben ser elegibles Y tener alta propensión MT.
+      El umbral es umbral_decision_modelo (contrato con Estadística): se
+      considera "alta propensión" cuando la media de p_acceptance sobre las
+      ofertas MT supera el mismo umbral que el modelo usa para decidir si el
+      cliente aceptaría una oferta. Antes era un 0.65 arbitrario que no estaba
+      alineado con el modelo.
       Nota: el churn alto por sí solo NO activa la recomendación MT si el cliente
-      no es elegible — en ese caso el RAG elige la mejor oferta de retención.
+      no es elegible — en ese caso se elige la mejor oferta de retención.
     """
     es_mt = profile.get("es_movistar_total", False)
     elegible_mt = profile.get("elegible_mt", False)
@@ -216,13 +289,31 @@ def _prefer_mt(profile: dict, scores: dict) -> bool:
     if not elegible_mt:
         return False
 
-    # Condición suficiente: propensidad alta según el modelo de FASE 8
-    return mt_prop > 0.65
+    # Condición suficiente: propensidad alta según el modelo (umbral de decisión)
+    return mt_prop > MT_PROPENSITY_THRESHOLD
 
 
 def prefer_mt(profile: dict, scores: dict) -> bool:
     """Wrapper público de `_prefer_mt` para la capa de selección del NBO."""
     return _prefer_mt(profile, scores)
+
+
+def _boost_mt_propensity(offer: dict, profile: dict) -> float:
+    """
+    Prior suave de Movistar Total aplicado al ranking.
+
+    En lugar del boost binario (1.0 si MT y prefer_mt), el ranking puntúa
+    score + λ·I_mt con λ = MT_PROPENSITY_BOOST. La prioridad MT entra como un
+    empujón acotado (≈ +5 p.p.) que nunca eclipsa la señal real de relevancia
+    (semántica o p_acceptance).
+
+    Devuelve 0.0 si la oferta no es MT, o si el cliente no es elegible MT.
+    """
+    if not is_mt_offer(offer):
+        return 0.0
+    if not profile.get("elegible_mt", False):
+        return 0.0
+    return float(MT_PROPENSITY_BOOST)
 
 
 def _tiene_upgrade_mt_superior(profile: dict) -> bool:
@@ -386,13 +477,8 @@ def _filter_by_business_rules(
     churn = float(scores.get("churn_risk", 0) or 0)
 
     # Asequibilidad: precio de la oferta <= factor × referencia de gasto.
-    # Referencia = factura promedio; si falta, precio del plan actual.
-    factura = _as_float(profile.get("monto_facturado_prom"))
-    if factura is None:
-        factura = _plan_actual_price(profile)
+    cap = _affordability_cap(profile)
     moroso = int(profile.get("meses_moroso", 0) or 0) > 0
-    factor = AFFORDABILITY_FACTOR_MOROSO if moroso else AFFORDABILITY_FACTOR
-    cap = factura * factor if factura is not None else None
 
     current = _current_plan_info(profile)
 
@@ -404,7 +490,7 @@ def _filter_by_business_rules(
         if segmento == "movil" and not tiene_movil:
             continue
         es_mt_offer = str(offer.get("es_movistar_total", "False")).lower() == "true"
-        if es_mt and es_mt_offer and churn <= 0.60:
+        if es_mt and es_mt_offer and not necesita_estrategia_retencion(churn, profile):
             continue
         if cap is not None:
             precio = _as_float(offer.get("precio_mensual"))

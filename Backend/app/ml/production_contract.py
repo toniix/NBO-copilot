@@ -10,6 +10,8 @@ el equipo de Estadística exporta en FASE 8:
       * outliers_percentil_995 -> umbrales de outlier de facturación/consumo
       * oferta_hogar_base_id  -> plan hogar base para ahorro_potencial_mt
       * umbral_decision_modelo -> corte p_acceptance >= X => "acepta" (decisión)
+      * churn_score           -> pesos del score individual + cuartiles que asignan
+        la etiqueta de riesgo de churn (FASE 8 corregida), en lugar del KMeans.
 
   - categorias_produccion.json -> valores exactos de cada variable categórica
     del OneHotEncoder. El encoder ignora valores fuera de esta lista
@@ -44,6 +46,27 @@ DEFAULT_OUTLIERS_PCTL995: dict[str, float | None] = {
 }
 DEFAULT_OFERTA_HOGAR_BASE_ID = "OF005"
 DEFAULT_UMBRAL_DECISION = 0.3507315
+
+DEFAULT_CHURN_SCORE: dict = {
+    "pesos": {
+        "riesgo_mora_score": 1.0,
+        "n_reclamos": 5.0,
+        "n_actividad_canal": -1.0,
+        "uso_app_movistar_prom": -1.0,
+    },
+    "cuartiles": [-3.0, 30.33333333333334, 65.16666666666667],
+    "etiquetas": ["riesgo_bajo", "riesgo_medio_bajo", "riesgo_medio_alto", "riesgo_alto"],
+    "kmeans_reponderacion_input": {
+        "riesgo_mora_score": 2.5,
+        "n_reclamos": 1.5,
+    },
+    "mora_media_esperada_por_etiqueta": {
+        "riesgo_bajo": 0.4,
+        "riesgo_medio_bajo": 28.37,
+        "riesgo_medio_alto": 48.66,
+        "riesgo_alto": 98.74,
+    },
+}
 
 # Cache en memoria (singleton)
 _constantes: dict | None = None
@@ -133,6 +156,33 @@ def get_umbral_decision() -> float:
         return float(umbral) if umbral is not None else DEFAULT_UMBRAL_DECISION
     except (TypeError, ValueError):
         return DEFAULT_UMBRAL_DECISION
+
+
+def get_churn_score_config() -> dict:
+    """
+    Config del score individual de churn (FASE 8 corregida):
+      - pesos: coeficientes de score = Σ peso_i * feature_i (mora + reclamos·5 − actividad − uso_app)
+      - cuartiles: 3 puntos de corte que asignan la etiqueta de riesgo (mismo criterio
+        que pd.cut(bins=[-inf, *cuartiles, inf], right=True))
+      - etiquetas: vocabulario en orden ascendente de riesgo.
+      - kmeans_reponderacion_input: pesos con los que Estadística reponderó mora/reclamos
+        antes del KMeans (valida la consistencia del scaler del bundle).
+      - mora_media_esperada_por_etiqueta: media de riesgo_mora_score esperada por etiqueta
+        (sanidad: debe ser monótona creciente).
+    """
+    data = _constantes_().get("churn_score", {}) or {}
+    pesos = data.get("pesos") or DEFAULT_CHURN_SCORE["pesos"]
+    cuartiles = data.get("cuartiles") or DEFAULT_CHURN_SCORE["cuartiles"]
+    etiquetas = data.get("etiquetas") or DEFAULT_CHURN_SCORE["etiquetas"]
+    reweight = data.get("kmeans_reponderacion_input") or DEFAULT_CHURN_SCORE["kmeans_reponderacion_input"]
+    mora_esp = data.get("mora_media_esperada_por_etiqueta") or DEFAULT_CHURN_SCORE["mora_media_esperada_por_etiqueta"]
+    return {
+        "pesos": {k: float(v) for k, v in pesos.items()},
+        "cuartiles": [float(c) for c in cuartiles],
+        "etiquetas": list(etiquetas),
+        "kmeans_reponderacion_input": {k: float(v) for k, v in reweight.items()},
+        "mora_media_esperada_por_etiqueta": {k: float(v) for k, v in mora_esp.items()},
+    }
 
 
 def get_categorias() -> dict[str, list[str]]:

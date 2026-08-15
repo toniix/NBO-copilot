@@ -15,14 +15,20 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.state import AgentState
 from app.agents.utils import is_mt_offer
-from app.ml.feature_engineering import get_customer_profile, CHURN_HIGH_THRESHOLD
+from app.ml.feature_engineering import get_customer_profile, necesita_estrategia_retencion
 from app.ml.model_loader import (
     score_customer_full,
     score_offers_acceptance,
     build_rebate_prepared,
 )
 from app.ml.channel_recommender import recomendar_canal
-from app.ml.catalog_retriever import retrieve_offers, get_catalog_df, prefer_mt
+from app.ml.catalog_retriever import (
+    get_all_catalog_offers,
+    filter_by_business_rules,
+    prefer_mt,
+    MT_PROPENSITY_BOOST,
+    MT_PROPENSITY_THRESHOLD,
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -31,9 +37,10 @@ logger = logging.getLogger(__name__)
 # Configuración del decisor (FASE 7)
 # ---------------------------------------------------------------------------
 # El ranking del NBO es ML-primary: la predicción p_acceptance (modelo FASE 7)
-# decide el orden; el score semántico del RAG solo DESEMPATA entre ofertas con
-# probabilidad casi idéntica (banda de 1 p.p. al redondear a 2 decimales).
-# El RAG actúa como memoria que acota el catálogo, no como criterio principal.
+# decide el orden con precisión completa (sin redondeos que creen empates
+# artificiales). El RAG actúa como memoria semántica para el desempate residual
+# y para las alternativas que se muestran al asesor, no como compuerta ni como
+# criterio principal.
 # A clientes en plan de entrada (base) se les prioriza el paso natural de
 # mejora (ofertas "upgrade") en lugar de saltos a planes premium.
 PLAN_BASE_TIER = "OF001"
@@ -102,7 +109,11 @@ def ml_scoring_node(state: AgentState) -> dict:
 
     scores = {"churn_risk": res["churn_risk"], "mt_propensity": res["mt_propensity"]}
     churn_risk = scores["churn_risk"]
-    pitch_type = "fidelizacion" if churn_risk > CHURN_HIGH_THRESHOLD else "upselling"
+    pitch_type = (
+        "fidelizacion"
+        if necesita_estrategia_retencion(churn_risk, profile)
+        else "upselling"
+    )
 
     logger.info(
         f"[ml_scoring_node] churn_risk={churn_risk:.2f}, "
@@ -123,38 +134,55 @@ def ml_scoring_node(state: AgentState) -> dict:
 
 def catalog_retrieval_node(state: AgentState) -> dict:
     """
-    Recupera del vector store (Chroma) las ofertas del catálogo más relevantes
-    para el perfil del cliente y selecciona el Next Best Offer aplicando
-    reglas de negocio sobre los scores ML. Además recomienda el canal y el
-    momento óptimo para presentar la oferta.
+    Selecciona el Next Best Offer con scoring ML global del catálogo.
+
+    Flujo (optimizador, no compuerta RAG):
+      1. TODAS las ofertas del catálogo se puntúan con el modelo de aceptación
+         p_acceptance (una pasada de predict_proba).
+      2. Se aplican las reglas de negocio (asequibilidad, segmento, anti-downgrade,
+         elegibilidad MT).
+      3. El ranking es ML-primary con precisión completa: p_acceptance + boost MT
+         suave + boost step-up. El score semántico del RAG solo desempata en casos
+         residuales y nutre las alternativas que se muestran al asesor.
     """
     profile = state["customer_profile"]
     scores = state["ml_scores"]
     logger.info(f"[catalog_retrieval_node] Recuperando ofertas para: {profile.get('cliente_id')}")
 
+    # 1) Catálogo completo (el RAG ya no acota el conjunto a decidir).
     try:
-        offers = retrieve_offers(profile, scores)
+        offers = get_all_catalog_offers()
     except Exception as exc:
-        logger.error(f"[catalog_retrieval_node] Error en recuperación: {exc}")
-        return {"error": f"Error recuperando catálogo: {exc}", "offers_retrieved": []}
+        logger.error(f"[catalog_retrieval_node] Error cargando catálogo: {exc}")
+        return {"error": f"Error cargando catálogo: {exc}", "offers_retrieved": []}
 
     if not offers:
         return {"error": "No se encontraron ofertas aplicables para el cliente."}
 
-    # p_acceptance por oferta: usa el canal recomendado por FASE 5 (recomendar_canal).
-    # Se calcula en batch (una sola pasada de predict_proba) para evitar 5 llamadas.
+    # 2) Reglas de negocio primero (asequibilidad 1.5/1.25, segmento, anti-downgrade).
+    offers = filter_by_business_rules(offers, profile, scores)
+
+    # 3) p_acceptance en batch sobre las candidatas elegibles.
     canal_rec = recomendar_canal(profile)
     canal_uso = canal_rec.get("canal_recomendado", "Digital")
-    p_accepted = score_offers_acceptance(profile, offers, canal_uso)
+    try:
+        p_accepted = score_offers_acceptance(profile, offers, canal_uso)
+    except Exception as exc:
+        logger.error(f"[catalog_retrieval_node] Error en p_acceptance: {exc}")
+        return {"error": f"Error en p_acceptance: {exc}", "offers_retrieved": []}
     for offer, p in zip(offers, p_accepted):
         offer["p_acceptance"] = p
 
-    selected, justification = _select_best_offer(offers, profile, scores)
+    if not offers:
+        return {"error": "No se encontraron ofertas aplicables para el cliente."}
+
+    # 4) Ranking ML-primary (precisión completa) + desempate semántico residual.
+    selected, justification, ranked = _select_best_offer(offers, profile, scores)
     channel_recommendation = _build_channel_recommendation(profile, scores)
     price_delta = _plan_actual_delta(profile, selected)
 
-    # La oferta ganadora lidera la lista devuelta (el resto queda como alternativas)
-    offers = [selected] + [o for o in offers if o["oferta_id"] != selected["oferta_id"]]
+    # La oferta ganadora lidera la lista devuelta (el resto, ordenado por ML)
+    offers = ranked
 
     logger.info(f"[catalog_retrieval_node] NBO seleccionado: {selected.get('oferta_id')} ({selected.get('nombre_oferta')})")
 
@@ -174,17 +202,21 @@ def _build_channel_recommendation(profile: dict, scores: dict) -> dict:
     Recomienda el canal y el momento óptimo para presentar la oferta al
     cliente, en función de su canal más usado y de sus scores de riesgo.
     """
-    canal = str(profile.get("canal_mas_usado", "") or "Digital")
+    rec = recomendar_canal(profile)
+    canal_rec_nombre = rec.get("canal_recomendado") or str(profile.get("canal_mas_usado", "") or "Digital")
+    confianza = rec.get("confianza", "media")
+    canal_actual = rec.get("canal_actual") or str(profile.get("canal_mas_usado", "") or "Digital")
+
     churn = float(scores.get("churn_risk", 0) or 0)
     mt_prop = float(scores.get("mt_propensity", 0) or 0)
 
-    es_urgente = churn > CHURN_HIGH_THRESHOLD
+    es_urgente = necesita_estrategia_retencion(churn, profile)
 
-    # Canal sugerido: basado en el canal preferido del cliente
-    if canal == "Tienda":
+    # Canal sugerido según el modelo de canal óptimo
+    if canal_rec_nombre == "Tienda":
         channel = "Tienda (atención presencial)"
-    elif canal in ("Call In", "Call Out"):
-        channel = "Call Center (llamada)"
+    elif canal_rec_nombre in ("Call In", "Call Out"):
+        channel = f"{canal_rec_nombre} (Call Center)"
     else:
         channel = "Canal Digital (WhatsApp / app Movistar)"
 
@@ -204,7 +236,7 @@ def _build_channel_recommendation(profile: dict, scores: dict) -> dict:
         advice_parts.append(
             "aprovechar la próxima interacción natural para proponer la mejora sin presionar"
         )
-    if mt_prop > 0.50:
+    if mt_prop > MT_PROPENSITY_THRESHOLD:
         advice_parts.append(
             "cliente con alta propensión a Movistar Total, enfatizar el ahorro convergente"
         )
@@ -217,37 +249,50 @@ def _build_channel_recommendation(profile: dict, scores: dict) -> dict:
         "channel": channel,
         "timing": timing,
         "advice": ", ".join(advice_parts).capitalize() + ".",
-        "canal_actual": canal,
+        "canal_actual": canal_actual,
+        "confianza": confianza,
     }
+
 
 
 def _final_offer_score(offer: dict, profile: dict, scores: dict) -> float:
     """
-    Score decisor del NBO (ML-primary): la p_acceptance del modelo FASE 7
-    ordena las ofertas; se redondea a 2 decimales (banda de ~1 p.p.) para que
-    el RAG solo desempate entre probabilidades casi idénticas. Para clientes
-    en plan de entrada se refuerza el paso natural de mejora ("upgrade").
+    Score decisor del NBO (ML-primary, precisión completa).
+
+    p_acceptance del modelo FASE 7 ordena las ofertas SIN redondear: el round(p, 2)
+    anterior creaba empates artificiales de ±1 p.p. que dejaba decidir al RAG.
+    Se añade el boost suave de Movistar Total (λ·I_mt, solo clientes elegibles) y
+    el refuerzo del paso natural de mejora para clientes en plan de entrada.
     """
     ml = float(offer.get("p_acceptance", 0) or 0)
+    ml += _boost_mt_score(offer, profile)
     if (
         str(profile.get("plan_actual_id", "") or "") == PLAN_BASE_TIER
         and str(offer.get("tipo_oferta", "") or "") == "upgrade"
     ):
         ml += STEP_UP_BOOST
-    return round(ml, 2)
+    return ml
 
 
-def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple[dict, str]:
+def _boost_mt_score(offer: dict, profile: dict) -> float:
+    """Boost MT suave: MT_PROPENSITY_BOOST si el cliente es elegible MT y la oferta es MT."""
+    if not is_mt_offer(offer):
+        return 0.0
+    if not profile.get("elegible_mt", False):
+        return 0.0
+    return float(MT_PROPENSITY_BOOST)
+
+
+def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple[dict, str, list[dict]]:
     """
-    Selecciona la oferta final entre las candidatas recuperadas por RAG usando
-    reglas de negocio + scoring híbrido (ML p_acceptance + relevancia semántica).
+    Selecciona la oferta final entre las candidatas del catálogo puntuadas por ML.
 
-    - Si el cliente prefiere Movistar Total (prefer_mt), esas ofertas van al
-      frente y se rankean entre sí por el score híbrido.
-    - El resto se ordena por el score híbrido.
+    Ranking ML-primary honesto: ordena por `_final_offer_score` (p_acceptance en
+    precisión completa + prior MT + step-up). El score semántico del RAG solo
+    desempata en el caso residual de empate de precisión completa.
 
     Returns:
-        (offer_selected, justification)
+        (offer_selected, justification, ranked_offers)
     """
     churn = float(scores.get("churn_risk", 0) or 0)
     mt_prop = float(scores.get("mt_propensity", 0) or 0)
@@ -256,15 +301,13 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
     tiene_movil = profile.get("tiene_movil", False)
     tiene_hogar = profile.get("tiene_hogar", False)
 
-    # Misma señal que _prefer_mt() en catalog_retriever (FASE 7)
     prefer = prefer_mt(profile, scores)
 
     ranked = sorted(
         offers,
         key=lambda o: (
-            1.0 if is_mt_offer(o) and prefer else 0.0,
             _final_offer_score(o, profile, scores),
-            float(o.get("score", 0) or 0),  # desempate: relevancia semántica
+            float(o.get("score", 0) or 0),  # desempate residual: relevancia semántica
         ),
         reverse=True,
     )
@@ -274,26 +317,58 @@ def _select_best_offer(offers: list[dict], profile: dict, scores: dict) -> tuple
 
     if es_mt:
         reasons.append("el cliente ya es Movistar Total, se ofrece un upgrade premium")
-    if churn > CHURN_HIGH_THRESHOLD:
+    if necesita_estrategia_retencion(churn, profile):
         reasons.append("riesgo de cancelación alto, la oferta busca retención")
-    if elegible_mt and mt_prop > 0.50:
-        reasons.append("alta propensión a convergencia Movistar Total")
+    if elegible_mt and mt_prop > MT_PROPENSITY_THRESHOLD and prefer:
+        reasons.append("alta propensión a convergencia Movistar Total según el modelo")
     if is_mt_offer(selected):
         reasons.append("producto convergente con mayor ahorro y blindaje de permanencia")
     if selected.get("tipo_oferta") == "upgrade":
         reasons.append("es el paso natural de mejora sobre su plan actual sin saltar a un plan premium")
     if selected.get("p_acceptance") is not None:
-        reasons.append(f"mayor probabilidad de aceptación según el modelo ({(selected.get('p_acceptance') or 0) * 100:.0f}%)")
+        reasons.append(f"mayor probabilidad de aceptación según el modelo ({(selected.get('p_acceptance') or 0) * 100:.1f}%)")
+
+    # Señales de negocio del perfil (explicabilidad tipo FASE 8)
+    brecha = profile.get("brecha_datos")
+    if (
+        profile.get("brecha_datos_aplica")
+        and isinstance(brecha, (int, float))
+        and brecha > 0
+    ):
+        reasons.append(
+            f"el cliente consume {brecha:.0f} GB más de lo que cubre su plan actual, la oferta cierra esa brecha"
+        )
+    ahorro_mt = profile.get("ahorro_potencial_mt")
+    if (
+        profile.get("ahorro_potencial_mt_aplica")
+        and isinstance(ahorro_mt, (int, float))
+        and ahorro_mt > 0
+    ):
+        reasons.append(f"la convergencia le generaría un ahorro estimado de S/ {ahorro_mt:.0f} al mes")
+
+    # Señales de mora (FASE 8: explicar_recomendacion) usando el nivel del
+    # contrato (terciles de constantes_produccion.json)
+    nivel_mora = profile.get("riesgo_mora_nivel")
+    if nivel_mora == "bajo":
+        reasons.append("historial de pago estable (riesgo de mora bajo), buen momento para un upgrade")
+    elif nivel_mora == "alto":
+        reasons.append("riesgo de mora alto, se prioriza una oferta conservadora en precio")
+
+    # Relación consolidada (FASE 8: antigüedad >= 60 meses)
+    antiguedad = profile.get("antiguedad_meses", 0) or 0
+    if antiguedad >= 60:
+        reasons.append(f"cliente de {int(antiguedad)} meses de antigüedad, relación consolidada")
+
     if not tiene_hogar and selected.get("segmento_objetivo") == "hogar":
         reasons.append("cliente sin servicio hogar, oportunidad de cross-selling")
     if not tiene_movil and selected.get("segmento_objetivo") == "movil":
         reasons.append("cliente sin servicio móvil, oportunidad de cross-selling")
 
     if not reasons:
-        reasons.append(f"mayor relevancia semántica para el perfil (similitud {selected.get('score', 0):.2f})")
+        reasons.append(f"mayor probabilidad de aceptación según el modelo ({(selected.get('p_acceptance') or 0) * 100:.1f}%)")
 
     justification = "Se recomienda esta oferta porque " + "; ".join(reasons) + "."
-    return selected, justification
+    return selected, justification, ranked
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +391,14 @@ async def llm_pitch_node(state: AgentState) -> dict:
 
     logger.info(f"[llm_pitch_node] Generando pitch tipo '{pitch_type}' para oferta: {offer.get('oferta_id')}")
 
+    # Resiliencia del LLM: el NBO ya está decidido y rankeado por el ML; el
+    # pitch es un refuerzo del asesor. Si el LLM falla (timeout, auth, quota),
+    # se degrada la respuesta (sales_pitch="") SIN marcar error en el estado,
+    # para no convertir una caída del LLM en un 500/422 de toda la recomendación.
+    if not settings.OPENAI_API_KEY:
+        logger.warning("[llm_pitch_node] OPENAI_API_KEY no configurada; omitiendo generación de pitch.")
+        return {"sales_pitch": ""}
+
     system_prompt = _build_system_prompt(pitch_type)
     user_prompt = _build_user_prompt(profile, scores, offer, offers, channel_rec, pitch_type, price_delta)
 
@@ -325,8 +408,8 @@ async def llm_pitch_node(state: AgentState) -> dict:
         )
         pitch = response.content.strip()
     except Exception as exc:
-        logger.error(f"[llm_pitch_node] Error llamando al LLM: {exc}")
-        return {"error": f"Error generando sales pitch: {exc}", "sales_pitch": ""}
+        logger.warning(f"[llm_pitch_node] LLM no disponible, se degrada el pitch: {exc}")
+        return {"sales_pitch": ""}
 
     logger.info(f"[llm_pitch_node] Pitch generado ({len(pitch)} chars)")
     return {"sales_pitch": pitch}
@@ -334,24 +417,58 @@ async def llm_pitch_node(state: AgentState) -> dict:
 
 def _build_system_prompt(pitch_type: str) -> str:
     base = (
-        "Eres un asesor comercial experto de Movistar Perú. "
-        "Tu objetivo es generar guiones de venta hiperpersonalizados, "
-        "empáticos y persuasivos en español peruano. "
-        "El guion debe ser breve (máximo 4 oraciones), directo y fácil de leer en voz alta. "
-        "NO uses markdown, solo texto plano. "
-        "Usa SIEMPRE los precios, datos (GB) y ahorros EXACTOS que se te proporcionan; "
-        "nunca inventes cifras."
+        "Eres un asesor comercial SENIOR de Movistar Perú con más de 10 años de "
+        "experiencia en venta consultiva y retención de clientes de telecomunicaciones. "
+        "Hablas en español peruano, con frases cortas, naturales y fáciles de leer en voz alta; "
+        "tratas al cliente con cercanía y respeto, y vendes el VALOR de la oferta, no el precio.\n"
+        "\n"
+        "REGLAS INVIOLABLES:\n"
+        "1. Nunca reveles información interna: no menciones scores, probabilidades, el modelo, "
+        "'el sistema', 'la IA' ni términos como 'churn', 'riesgo de cancelación' o 'fuga'.\n"
+        "2. Nunca menciones la mora o deudas del cliente de forma directa; no lo hagas sentir "
+        "culpable ni lo presiones por su historial de pago.\n"
+        "3. Usa SIEMPRE los precios, GB y ahorros EXACTOS del catálogo. Si un dato no se te "
+        "entrega, no lo inventes.\n"
+        "4. No te refieras a esto como 'guion', 'script' ni 'oferta del sistema'; debe sonar a "
+        "conversación real de venta.\n"
+        "5. Salida en texto plano, sin markdown ni emojis, de máximo 5 oraciones breves.\n"
+        "6. Adáptate al CANAL y al MOMENTO indicados: en WhatsApp o SMS usa un tono escrito y "
+        "muy breve; en llamada, tono de voz cálido y natural. Si el momento es 'hoy' u 'urgente', "
+        "genera urgencia legítima (por ejemplo un beneficio por tiempo limitado), pero nunca "
+        "inventes plazos que no vengan en los datos.\n"
+        "7. Personaliza con lo que sabes del cliente: antigüedad, ciudad, plan y consumo actuales. "
+        "Cierra con un único llamado a la acción claro y de baja presión.\n"
+        "\n"
+        "FÓRMULA DE VENTA SENIOR:\n"
+        "a) Apertura empática que reconozca al cliente (su lealtad y antigüedad, o la necesidad "
+        "concreta que muestra su consumo).\n"
+        "b) Un gancho de valor con cifra exacta: el ahorro real en soles o los GB adicionales.\n"
+        "c) Un beneficio secundario que reafirme la decisión (servicios que ya disfruta, "
+        "exclusividad, mejor experiencia).\n"
+        "d) Un llamado a la acción natural y claro."
     )
     if pitch_type == "fidelizacion":
         return base + (
-            " El cliente tiene ALTO riesgo de cancelar su servicio. "
-            "Enfoca el guion en retención: empatía, beneficios exclusivos de quedarse, "
-            "y la oferta especial disponible para él/ella hoy."
+            "\n\nCONTEXTO DE LA GESTIÓN — RETENCIÓN:\n"
+            "El cliente tiene alto riesgo de cancelar y hoy la prioridad es retenerlo.\n"
+            "- Reconoce primero su lealtad y antigüedad con Movistar; hazlo sentir valorado y escuchado.\n"
+            "- Presenta la oferta como un beneficio EXCLUSIVO disponible para él/ella hoy, diseñado "
+            "para cuidar su relación con nosotros.\n"
+            "- Enfatiza lo que gana al quedarse (ahorro real o más beneficios) y la tranquilidad de "
+            "conservar su número, su plan y sus servicios.\n"
+            "- Tono cálido, pausado y seguro; evita cualquier presión comercial."
         )
     return base + (
-        " El cliente tiene bajo riesgo de churn y oportunidad de crecimiento. "
-        "Enfoca el guion en upselling/cross-selling: resalta el ahorro, "
-        "los beneficios adicionales y cómo el nuevo plan mejora su experiencia."
+        "\n\nCONTEXTO DE LA GESTIÓN — CRECIMIENTO (UPSELLING/CROSS-SELLING):\n"
+        "El cliente tiene una relación sólida con nosotros y hay una oportunidad real de mejorar "
+        "su experiencia.\n"
+        "- Conéctalo con su vida real: menciona su consumo de datos o voz y cómo la nueva oferta "
+        "lo supera o lo beneficia.\n"
+        "- Presenta la mejora como el 'siguiente nivel' natural de lo que ya disfruta, siempre con "
+        "el ahorro o los GB extra en cifras exactas.\n"
+        "- Si la oferta cuesta menos que su plan actual, destácalo como ahorro real; si cuesta lo "
+        "mismo o más, justifica el valor (más datos, mejores beneficios) sin ocultar el precio.\n"
+        "- Entusiasmo profesional y confianza: vendes una mejora de experiencia, no un plan más caro."
     )
 
 
@@ -473,7 +590,9 @@ DATOS DEL CLIENTE:
 - Consumo voz promedio: {profile.get('consumo_voz_min_prom', 0):.0f} min/mes
 - Factura promedio: S/ {profile.get('monto_facturado_prom', 0):.2f}
 - Canal preferido: {profile.get('canal_mas_usado', 'N/A')}
-- ¿Usa app Movistar?: {'Sí' if profile.get('es_usuario_app') else 'No'}{mora_info}
+- ¿Usa app Movistar?: {'Sí' if profile.get('es_usuario_app') else 'No'}
+- ¿Es cliente Movistar Total?: {'Sí' if profile.get('es_movistar_total') else 'No'}
+- Reclamos recientes: {profile.get('n_reclamos', 0)}{mora_info}
 
 ANÁLISIS DE INTELIGENCIA ARTIFICIAL:
 - Riesgo de cancelación (Churn): {churn_pct}%

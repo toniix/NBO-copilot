@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
-import { CheckCircle2, Tv, Wifi } from 'lucide-react'
+import { useMemo, useState } from "react";
+import { CheckCircle2, Tv, Wifi } from "lucide-react";
 
 const formatPrice = (value) => {
-  const n = Number(value)
-  return Number.isFinite(n) && n > 0 ? `S/ ${n.toFixed(2)}` : '—'
-}
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? `S/ ${n.toFixed(2)}` : "—";
+};
 
 const FeesBadge = ({ offer }) => {
   if (offer.es_movistar_total) {
@@ -12,54 +12,59 @@ const FeesBadge = ({ offer }) => {
       <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-700">
         <Tv className="h-3 w-3" aria-hidden="true" /> Movistar Total
       </span>
-    )
+    );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600">
-      <Wifi className="h-3 w-3" aria-hidden="true" /> {offer.tipo_oferta || 'Plan Móvil'}
+      <Wifi className="h-3 w-3" aria-hidden="true" />{" "}
+      {offer.tipo_oferta || "Plan Móvil"}
     </span>
-  )
-}
+  );
+};
 
 const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
-  const offers = clientData.offers || []
-  const nbo = clientData.offer?.nombre_oferta || clientData.nboSelected
-  const [selectedOfferId, setSelectedOfferId] = useState(null)
-  const [feedback, setFeedback] = useState('')
+  const offers = clientData.offers || [];
+  const nbo = clientData.offer?.nombre_oferta || clientData.nboSelected;
+  const [selectedOfferId, setSelectedOfferId] = useState(null);
+  const [feedback, setFeedback] = useState("");
 
   const cards = useMemo(() => {
-    const fromBackend = offers.filter((offer) => offer && offer.nombre_oferta)
-    if (fromBackend.length > 0) return fromBackend
-    return clientData.offer?.nombre_oferta ? [clientData.offer] : []
-  }, [offers, clientData.offer])
+    const fromBackend = offers.filter((offer) => offer && offer.nombre_oferta);
+    if (fromBackend.length > 0) return fromBackend;
+    return clientData.offer?.nombre_oferta ? [clientData.offer] : [];
+  }, [offers, clientData.offer]);
 
-  const recommendedId = clientData.offer?.oferta_id || null
+  const recommendedId = clientData.offer?.oferta_id || null;
 
   const applyFeedback = (text) => {
-    setFeedback(text)
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => setFeedback(''), 4000)
+    setFeedback(text);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setFeedback(""), 4000);
     }
-  }
+  };
 
   const handleReject = () => {
-    applyFeedback('Cliente no aceptó la oferta.')
-    if (typeof onReject === 'function') onReject()
-  }
+    applyFeedback("Cliente no aceptó la oferta.");
+    if (typeof onReject === "function") onReject();
+  };
 
   const handleAccept = () => {
-    applyFeedback('Venta registrada: oferta aceptada.')
-    if (typeof onAccept === 'function') onAccept(selectedOfferId)
-  }
+    applyFeedback("Venta registrada: oferta aceptada.");
+    if (typeof onAccept === "function") onAccept(selectedOfferId);
+  };
 
   if (cards.length === 0) {
-    return null
+    return null;
   }
 
-  const effectiveSelected = selectedOfferId || recommendedId || cards[0]?.oferta_id
+  const effectiveSelected =
+    selectedOfferId || recommendedId || cards[0]?.oferta_id;
 
   return (
-    <section className="flex h-full flex-col justify-between rounded-3xl border border-[#5BC500]/40 bg-white p-6 shadow-sm" aria-label="Propuesta comercial">
+    <section
+      className="flex h-full flex-col justify-between rounded-3xl border border-[#5BC500]/40 bg-white p-6 shadow-sm"
+      aria-label="Propuesta comercial"
+    >
       <div>
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -90,8 +95,8 @@ const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
 
         <div className="space-y-3">
           {cards.map((offer) => {
-            const isSelected = effectiveSelected === offer.oferta_id
-            const isRecommended = offer.oferta_id === recommendedId
+            const isSelected = effectiveSelected === offer.oferta_id;
+            const isRecommended = offer.oferta_id === recommendedId;
             return (
               <button
                 key={offer.oferta_id || offer.nombre_oferta}
@@ -101,8 +106,8 @@ const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
                 aria-label={`Seleccionar oferta ${offer.nombre_oferta}`}
                 className={`group relative flex w-full cursor-pointer items-center justify-between rounded-2xl border p-4 text-left shadow-2xs transition-all duration-200 focus-visible:outline-2 focus-visible:outline-[#019DF4] ${
                   isSelected
-                    ? 'border-2 border-[#5BC500] bg-[#f4fbe9] shadow-sm'
-                    : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+                    ? "border-2 border-[#5BC500] bg-[#f4fbe9] shadow-sm"
+                    : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs"
                 }`}
               >
                 <div className="min-w-0 flex-1 pr-3">
@@ -120,7 +125,7 @@ const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
                   <p className="mt-0.5 text-xs font-medium text-slate-500">
                     {offer.gb_incluidos != null && offer.gb_incluidos < 9999
                       ? `${offer.gb_incluidos} GB de datos`
-                      : 'Datos ilimitados'}
+                      : "Datos ilimitados"}
                     {offer.p_acceptance != null && (
                       <span className="ml-2 font-bold text-[#3f8b00]">
                         · {Math.round(offer.p_acceptance * 100)}% aceptación
@@ -131,20 +136,26 @@ const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
 
                 <div className="flex shrink-0 items-center gap-3 text-right">
                   <div>
-                    <p className="text-xl font-extrabold text-[#0f172a]">{formatPrice(offer.precio_mensual)}</p>
-                    <p className="text-[10px] uppercase font-semibold text-slate-400">mensual</p>
+                    <p className="text-xl font-extrabold text-[#0f172a]">
+                      {formatPrice(offer.precio_mensual)}
+                    </p>
+                    <p className="text-[10px] uppercase font-semibold text-slate-400">
+                      mensual
+                    </p>
                   </div>
                   <div
                     aria-hidden="true"
                     className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold ${
-                      isSelected ? 'border-[#5BC500] bg-white text-[#5BC500]' : 'border-slate-200 bg-white text-transparent'
+                      isSelected
+                        ? "border-[#5BC500] bg-white text-[#5BC500]"
+                        : "border-slate-200 bg-white text-transparent"
                     }`}
                   >
                     ✓
                   </div>
                 </div>
               </button>
-            )
+            );
           })}
         </div>
       </div>
@@ -153,7 +164,7 @@ const PropuestaComercial = ({ clientData, onAccept, onReject }) => {
         {feedback}
       </p>
     </section>
-  )
-}
+  );
+};
 
-export default PropuestaComercial
+export default PropuestaComercial;

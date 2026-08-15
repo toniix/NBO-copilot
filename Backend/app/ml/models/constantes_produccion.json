@@ -8,6 +8,26 @@
     "consumo_datos_gb_prom": null
   },
   "oferta_hogar_base_id": "OF005",
-  "umbral_decision_modelo": 0.3508312,
-  "generado": "2026-08-11T21:57:44.271173"
+  "umbral_decision_modelo": 0.37848094,
+  "churn_score": {
+    "pesos": {
+      "riesgo_mora_score": 1.0,
+      "n_reclamos": 5.0,
+      "n_actividad_canal": -1.0,
+      "uso_app_movistar_prom": -1.0
+    },
+    "cuartiles": [-3.0, 30.33333333333334, 65.16666666666667],
+    "etiquetas": ["riesgo_bajo", "riesgo_medio_bajo", "riesgo_medio_alto", "riesgo_alto"],
+    "kmeans_reponderacion_input": {
+      "riesgo_mora_score": 2.5,
+      "n_reclamos": 1.5
+    },
+    "mora_media_esperada_por_etiqueta": {
+      "riesgo_bajo": 0.4,
+      "riesgo_medio_bajo": 28.37,
+      "riesgo_medio_alto": 48.66,
+      "riesgo_alto": 98.74
+    }
+  },
+  "generado": "2026-08-14T14:22:33.029458"
 }

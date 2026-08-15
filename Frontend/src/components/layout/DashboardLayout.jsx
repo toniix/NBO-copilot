@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { BarChart3, LogOut, UserRound } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '../../store/useAuthStore'
@@ -6,6 +7,23 @@ import useDashboardStore from '../../store/useDashboardStore'
 const DashboardLayout = ({ children }) => {
   const { user, logout } = useAuthStore()
   const { salesMetrics, salesByAdvisor } = useDashboardStore()
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true)
+
+  useEffect(() => {
+    let lastScrollY = window.scrollY
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY
+      if (currentScrollY > 60 && currentScrollY > lastScrollY) {
+        setIsHeaderVisible(false)
+      } else {
+        setIsHeaderVisible(true)
+      }
+      lastScrollY = currentScrollY
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const myAdvisorKey = user?.id || `advisor-${(user?.name || '').toLowerCase()}`
   const mySales = (salesByAdvisor && salesByAdvisor[myAdvisorKey] && salesByAdvisor[myAdvisorKey].accepted) || 0
@@ -17,7 +35,11 @@ const DashboardLayout = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-[#F5F6F8] text-[#313235]">
-      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-md shadow-xs">
+      <header
+        className={`sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur-md shadow-xs transition-transform duration-300 ${
+          isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+        }`}
+      >
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Brand Logo & App Title */}
           <div className="flex items-center gap-3">

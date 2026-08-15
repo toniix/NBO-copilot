@@ -1,5 +1,15 @@
-const Section = ({ title, subtitle, icon: Icon, accent = 'text-[#313235]', children, actions }) => (
-  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" aria-label={title}>
+const Section = ({
+  title,
+  subtitle,
+  icon: Icon,
+  accent = "text-[#313235]",
+  children,
+  actions,
+}) => (
+  <section
+    className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+    aria-label={title}
+  >
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         {Icon && (
@@ -16,6 +26,6 @@ const Section = ({ title, subtitle, icon: Icon, accent = 'text-[#313235]', child
     </div>
     {children}
   </section>
-)
+);
 
-export default Section
+export default Section;

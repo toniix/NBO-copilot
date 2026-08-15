@@ -3,9 +3,13 @@ model_loader.py
 ---------------
 Carga los modelos oficiales de FASE 8 una sola vez en memoria (singleton pattern).
 Modelos cargados:
-  - churn_segmentacion.pkl    -> KMeans no supervisado (FASE 8) que clasifica al cliente
-                                 en {riesgo_bajo, riesgo_medio_bajo, riesgo_medio_alto,
-                                 riesgo_alto}. La etiqueta se mapea a churn_risk (0-1).
+  - churn_segmentacion.pkl    -> artefacto oficial de churn (KMeans no supervisado, FASE 8
+                                 corregida). La ETIQUETA de riesgo ya NO se deriva del KMeans:
+                                 se asigna por score individual + cuartiles (constantes en
+                                 constantes_produccion.json -> churn_score). El bundle se
+                                 conserva como referencia y por trazabilidad del artefacto.
+                                 Etiquetas: {riesgo_bajo, riesgo_medio_bajo, riesgo_medio_alto,
+                                 riesgo_alto} mapeadas a churn_risk (0-1).
   - modelo_propension.pkl     -> Pipeline OHE + XGBoost (FASE 8) que predice p_acceptance
                                  por oferta. Se usa tanto para score_offers_acceptance()
                                  como para derive_mt_propensity() (promedio sobre ofertas MT).
@@ -23,6 +27,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.ml.channel_recommender import recomendar_canal, CHURN_LABEL_TO_RISK
+from app.ml.production_contract import get_churn_score_config
 
 # ---------------------------------------------------------------------------
 # Singleton — los modelos se cargan una vez al arrancar la app
@@ -63,11 +68,12 @@ def load_models() -> None:
 
 def _churn_features_vector(profile: dict) -> np.ndarray:
     """
-    Vector de features del clustering de churn (FASE 8), en el ORDEN EXACTO
+    Vector de features del clustering de churn (FASE 8 corregida), en el ORDEN EXACTO
     de churn_segmentacion.pkl -> bundle["features"]:
       ['antiguedad_meses','uso_app_movistar_prom','monto_facturado_prom','n_reclamos',
-       'n_actividad_canal','riesgo_mora_score','tiene_movil','tiene_hogar',
-       'tiene_internet_hogar','elegible_mt']
+       'n_actividad_canal','riesgo_mora_score','elegible_mt']
+    Se conserva como referencia y para verificación del artefacto; la etiqueta de
+    riesgo se asigna por score individual + cuartiles (_score_churn_risk).
     """
     features = [
         float(profile.get("antiguedad_meses", 0) or 0),
@@ -76,42 +82,59 @@ def _churn_features_vector(profile: dict) -> np.ndarray:
         float(profile.get("n_reclamos", 0) or 0),
         float(profile.get("n_actividad_canal", 0) or 0),
         float(profile.get("riesgo_mora_score", 0) or 0),
-        1.0 if profile.get("tiene_movil") else 0.0,
-        1.0 if profile.get("tiene_hogar") else 0.0,
-        1.0 if profile.get("tiene_internet_hogar") else 0.0,
         1.0 if profile.get("elegible_mt") else 0.0,
     ]
     return np.array(features, dtype=np.float64).reshape(1, -1)
 
 
+def _churn_label_from_score(score: float) -> str:
+    """
+    Asigna la etiqueta de riesgo de churn a partir del score individual.
+    criterio idéntico a pd.cut(score, bins=[-inf, *cuartiles, inf], right=True):
+    un score igual al punto de corte cae en la etiqueta inferior; el orden de
+    las etiquetas es ascendente en riesgo.
+    """
+    cfg = get_churn_score_config()
+    cuts = cfg["cuartiles"]
+    labels = cfg["etiquetas"]
+    idx = int(np.searchsorted(cuts, float(score), side="left"))
+    idx = min(idx, len(labels) - 1)
+    return labels[idx]
+
+
+def _score_churn_risk(profile: dict) -> tuple[str, float]:
+    """
+    Etiqueta + score 0-1 de riesgo de churn (FASE 8 corregida).
+
+    score individual = Σ pesos_i · feature_i
+        = riesgo_mora_score + n_reclamos·5 − n_actividad_canal − uso_app_movistar_prom
+    La etiqueta sale de los cuartiles (constantes_produccion.json -> churn_score),
+    NO del KMeans. Esto resuelve el artefacto donde una variable binaria colapsaba
+    a los clientes sin línea en riesgo_bajo y la mora no separaba las etiquetas.
+    """
+    cfg = get_churn_score_config()
+    pesos = cfg["pesos"]
+    score = sum(
+        float(pesos.get(feature, 0.0)) * float(profile.get(feature, 0) or 0)
+        for feature in ("riesgo_mora_score", "n_reclamos", "n_actividad_canal", "uso_app_movistar_prom")
+    )
+    etiqueta = _churn_label_from_score(score)
+    riesgo = CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
+    return etiqueta, riesgo
+
+
 def _score_churn_segmentation(profile: dict) -> float:
     """
-    Score de riesgo de churn desde la segmentación KMeans de FASE 8.
-    El bundle contiene scaler + kmeans + mapa_cluster_a_etiqueta.
-    La etiqueta se mapea a un score 0-1 (CHURN_LABEL_TO_RISK) para preservar
-    el contrato del sistema (float con umbral 0.60).
+    Score de riesgo de churn (0-1) desde el score individual + cuartiles de
+    FASE 8 corregida. Se mapea a un 0-1 para preservar el contrato del sistema
+    (float con umbral 0.60).
     """
-    bundle = _churn_model
-    scaler = bundle["scaler"]
-    kmeans = bundle["kmeans"]
-    mapa = bundle.get("mapa_cluster_a_etiqueta", {})
-
-    X = _churn_features_vector(profile)
-    X_scaled = scaler.transform(X)
-    cluster_id = int(kmeans.predict(X_scaled)[0])
-    etiqueta = mapa.get(cluster_id, "riesgo_medio_bajo")
-    return CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
+    return _score_churn_risk(profile)[1]
 
 
 def get_churn_label(profile: dict) -> str:
-    """Devuelve la etiqueta de segmentación de churn (FASE 8) del cliente."""
-    if isinstance(_churn_model, dict) and "kmeans" in _churn_model:
-        bundle = _churn_model
-        X = _churn_features_vector(profile)
-        X_scaled = bundle["scaler"].transform(X)
-        cluster_id = int(bundle["kmeans"].predict(X_scaled)[0])
-        return bundle.get("mapa_cluster_a_etiqueta", {}).get(cluster_id, "riesgo_medio_bajo")
-    return ""
+    """Devuelve la etiqueta de riesgo de churn (FASE 8 corregida) del cliente."""
+    return _score_churn_risk(profile)[0]
 
 
 def derive_mt_propensity(profile: dict) -> float:
@@ -138,7 +161,11 @@ def derive_mt_propensity(profile: dict) -> float:
 
 def score_customer_full(profile: dict) -> dict:
     """
-    Genera scores + etiqueta de churn en UNA SOLA pasada del modelo de segmentación.
+    Genera scores + etiqueta de churn en UNA SOLA pasada.
+
+    La etiqueta se asigna por score individual + cuartiles (FASE 8 corregida),
+    no por el KMeans. `_churn_model` se mantiene cargado como artefacto oficial
+    y para trazabilidad/verificación.
 
     Returns:
         {
@@ -152,14 +179,7 @@ def score_customer_full(profile: dict) -> dict:
             "El modelo de churn no ha sido cargado. Verifica el lifespan de FastAPI."
         )
 
-    # churn_segmentacion.pkl es siempre el bundle KMeans de FASE 8
-    bundle = _churn_model
-    X = _churn_features_vector(profile)
-    X_scaled = bundle["scaler"].transform(X)
-    cluster_id = int(bundle["kmeans"].predict(X_scaled)[0])
-    etiqueta = bundle.get("mapa_cluster_a_etiqueta", {}).get(cluster_id, "riesgo_medio_bajo")
-    churn_risk = CHURN_LABEL_TO_RISK.get(etiqueta, 0.4)
-    churn_label = etiqueta
+    churn_label, churn_risk = _score_churn_risk(profile)
 
     mt_proba = derive_mt_propensity(profile)
 

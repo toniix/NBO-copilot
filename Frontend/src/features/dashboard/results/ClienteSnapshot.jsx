@@ -1,4 +1,4 @@
-import { CalendarDays, CircleAlert, MapPin, ShieldCheck, Smartphone, Tag, Tv, UserRound, Zap } from 'lucide-react'
+import { CalendarDays, CircleAlert, MapPin, Smartphone, Tag, Tv, UserRound, Zap } from 'lucide-react'
 import Badge from './Badge'
 
 const formatMoney = (value) => {
@@ -7,13 +7,13 @@ const formatMoney = (value) => {
 }
 
 const Stat = ({ icon: Icon, label, value }) => (
-  <div className="flex items-center gap-2.5">
-    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100">
-      <Icon className="h-4 w-4 text-slate-500" aria-hidden="true" />
+  <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 px-3.5 shadow-2xs transition-all hover:bg-slate-100/60 min-w-0" title={value || '—'}>
+    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#019DF4] shadow-2xs border border-slate-100">
+      <Icon className="h-4 w-4" aria-hidden="true" />
     </span>
-    <div className="min-w-0">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="truncate text-sm font-semibold text-[#313235]">{value || '—'}</p>
+    <div className="min-w-0 flex-1">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="truncate text-sm font-extrabold text-[#313235]">{value || '—'}</p>
     </div>
   </div>
 )
@@ -29,14 +29,14 @@ const ClienteSnapshot = ({ clientData }) => {
       aria-label="Resumen del cliente"
     >
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-4 min-w-0">
           <span
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#019DF4] to-[#0176b5] text-2xl font-bold text-white shadow-sm"
             aria-hidden="true"
           >
             {initial}
           </span>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xl font-semibold text-[#313235]">{clientData.name || 'Cliente'}</h2>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
               <span className="inline-flex items-center gap-1.5">
@@ -48,18 +48,21 @@ const ClienteSnapshot = ({ clientData }) => {
             </p>
             <div className="mt-3 flex flex-wrap gap-2" aria-label="Etiquetas del cliente">
               {profile.tipo_cliente && <Badge tone="slate">{profile.tipo_cliente}</Badge>}
+              {profile.antiguedad_categoria_simple && <Badge tone="blue" icon={CalendarDays}>{profile.antiguedad_categoria_simple}</Badge>}
+              {profile.n_reclamos_categoria && profile.n_reclamos_categoria !== "0" && (
+                <Badge tone="red" icon={CircleAlert}>Reclamos: {profile.n_reclamos_categoria}</Badge>
+              )}
               {profile.es_movistar_total && <Badge tone="purple" icon={Tv}>Movistar Total</Badge>}
               {profile.es_usuario_app && <Badge tone="blue" icon={Zap}>Usa app</Badge>}
               {clientData.churnAlert && <Badge tone="red" icon={CircleAlert}>Alerta de fuga</Badge>}
-              {clientData.pitchType && <Badge tone="amber" icon={ShieldCheck}>{clientData.pitchType}</Badge>}
             </div>
           </div>
         </div>
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:w-auto">
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 w-full lg:w-auto shrink-0">
           <Stat icon={MapPin} label="Ubicación" value={profile.ubicacion_departamento} />
           <Stat icon={UserRound} label="Edad" value={profile.edad_rango} />
-          <Stat icon={CalendarDays} label="Antigüedad" value={profile.antiguedad_meses != null ? `${profile.antiguedad_meses} meses` : null} />
+          <Stat icon={CalendarDays} label="Antigüedad" value={profile.antiguedad_meses != null ? `${profile.antiguedad_meses} meses` : '—'} />
           <Stat icon={Smartphone} label="Facturación" value={formatMoney(profile.monto_facturado_prom)} />
         </dl>
       </div>
